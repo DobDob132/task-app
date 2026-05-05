@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <title>Task App</title>
+
+  <script type="module">
+    import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
+
+    const supabase = createClient(
+      "https://slwjqcstrrsnpgnyhmps.supabase.co",
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNsd2pxY3N0cnJzbnBnbnlobXBzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwMDI0MzYsImV4cCI6MjA5MzU3ODQzNn0.cYRwN0Yp0_m8_qeuYzg0qgSUzClv4O1AU4z4BYyNLG8"
+    );
+
+    window.supabase = supabase;
+
+    // UI wechseln
+    function showApp() {
+      document.getElementById("loginView").style.display = "none";
+      document.getElementById("appView").style.display = "block";
+    }
+
+    function showLogin() {
+      document.getElementById("loginView").style.display = "block";
+      document.getElementById("appView").style.display = "none";
+    }
+
+    async function login() {
+      const email = document.getElementById("email").value;
+      const password = document.getElementById("password").value;
+
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      });
+
+      if (error) {
+        alert("Login fehlgeschlagen: " + error.message);
+        return;
+      }
+
+      await loadTasks();
+      showApp();
+    }
+
+    async function logout() {
+      await supabase.auth.signOut();
+      showLogin();
+    }
+
+    async function loadTasks() {
+      const { data: userData } = await supabase.auth.getUser();
+      const user = userData?.user;
+
+      if (!user) {
+        showLogin();
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("tasks")
+        .select("*")
+        .eq("user_id", user.id);
+
+      const list = document.getElementById("taskList");
+      list.innerHTML = "";
+
+      if (error) {
+        list.innerHTML = "<li>Fehler beim Laden der Aufgaben</li>";
+        return;
+      }
+
+      if (!data || data.length === 0) {
+        list.innerHTML = "<li>Keine Aufgaben vorhanden</li>";
+        return;
+      }
+
+      data.forEach(task => {
+        const li = document.createElement("li");
+        li.textContent = task.task_text;
+        list.appendChild(li);
+      });
+    }
+
+    window.login = login;
+    window.logout = logout;
+
+    // Auto-Check beim Laden
+    window.addEventListener("load", async () => {
+      const { data } = await supabase.auth.getUser();
+      if (data?.user) {
+        await loadTasks();
+        showApp();
+      } else {
+        showLogin();
+      }
+    });
+  </script>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #0f172a;
+      color: white;
+      margin: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+
+    .card {
+      background: #111827;
+      padding: 30px;
+      border-radius: 12px;
+      width: 320px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+      text-align: center;
+    }
+
+    input {
+      width: 100%;
+      padding: 10px;
+      margin: 8px 0;
+      border: none;
+      border-radius: 8px;
+    }
+
+    button {
+      width: 100%;
+      padding: 10px;
+      margin-top: 10px;
+      border: none;
+      border-radius: 8px;
+      background: #3b82f6;
+      color: white;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: #2563eb;
+    }
+
+    ul {
+      list-style: none;
+      padding: 0;
+      margin-top: 10px;
+    }
+
+    li {
+      background: #1f2937;
+      margin: 6px 0;
+      padding: 10px;
+      border-radius: 8px;
+    }
+
+    .logout {
+      background: #ef4444;
+      margin-top: 15px;
+    }
+
+    .hidden {
+      display: none;
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- LOGIN -->
+  <div id="loginView" class="card">
+    <h2>Login</h2>
+    <input id="email" placeholder="Email">
+    <input id="password" type="password" placeholder="Passwort">
+    <button onclick="login()">Einloggen</button>
+  </div>
+
+  <!-- APP -->
+  <div id="appView" class="card hidden">
+    <h2>Deine Aufgaben</h2>
+    <ul id="taskList"></ul>
+    <button class="logout" onclick="logout()">Logout</button>
+  </div>
+
+</body>
+</html>
