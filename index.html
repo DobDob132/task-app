@@ -56,7 +56,7 @@
       show("login");
     }
 
-    // 👥 PROFILES LADEN
+    // 👥 USERS LADEN
     async function loadProfiles() {
       const { data, error } = await supabase.from("profiles").select("*");
 
@@ -68,9 +68,13 @@
       const select = document.getElementById("userSelect");
       select.innerHTML = "";
 
+      if (!data || data.length === 0) return;
+
       data.forEach(p => {
+        if (!p.id) return;
+
         const option = document.createElement("option");
-        option.value = p.id; // MUSS auth.user.id sein!
+        option.value = p.id;
         option.textContent = p.email;
         select.appendChild(option);
       });
@@ -81,8 +85,15 @@
       const text = document.getElementById("taskText").value;
       const userId = document.getElementById("userSelect").value;
 
-      if (!text || !userId) {
-        alert("Bitte alles ausfüllen");
+      console.log("DEBUG userId:", userId);
+
+      if (!text) {
+        alert("Bitte Text eingeben");
+        return;
+      }
+
+      if (!userId || userId === "null") {
+        alert("Bitte gültigen User auswählen");
         return;
       }
 
@@ -104,6 +115,11 @@
 
     // ✅ ERLEDIGT
     async function markDone(id) {
+      if (!id || id === "null") {
+        alert("Ungültige Task-ID");
+        return;
+      }
+
       const { error } = await supabase
         .from("tasks")
         .update({ done: true })
@@ -129,7 +145,6 @@
 
       let query = supabase.from("tasks").select("*");
 
-      // User sieht nur eigene Tasks
       if (!isAdmin(user)) {
         query = query.eq("user_id", user.id);
       }
@@ -145,7 +160,7 @@
         return;
       }
 
-      if (!data.length) {
+      if (!data || data.length === 0) {
         list.innerHTML = "<li>Keine Aufgaben</li>";
         return;
       }
@@ -153,9 +168,9 @@
       let doneCount = 0;
 
       data.forEach(task => {
-        if (task.done) doneCount++;
+        if (!task.id) return;
 
-        console.log("TASK:", task.id, task.user_id); // DEBUG
+        if (task.done) doneCount++;
 
         const li = document.createElement("li");
 
@@ -181,6 +196,7 @@
     window.markDone = markDone;
     window.createTask = createTask;
 
+    // 🚀 START
     window.addEventListener("load", async () => {
       const { data } = await supabase.auth.getUser();
 
