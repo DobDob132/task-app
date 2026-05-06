@@ -19,7 +19,7 @@
     let currentUser = null;
 
     function isAdmin(user) {
-      return user.email === ADMIN_EMAIL;
+      return user?.email === ADMIN_EMAIL;
     }
 
     function show(view) {
@@ -41,6 +41,9 @@
 
       currentUser = data.user;
 
+      document.getElementById("adminPanel").style.display =
+        isAdmin(currentUser) ? "block" : "none";
+
       await loadProfiles();
       await loadTasks();
 
@@ -55,34 +58,25 @@
 
     // 👥 PROFILES LADEN
     async function loadProfiles() {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("*");
+      const { data, error } = await supabase.from("profiles").select("*");
 
       if (error) {
-        console.error("Profiles Fehler:", error);
+        console.error(error);
         return;
       }
 
       const select = document.getElementById("userSelect");
       select.innerHTML = "";
 
-      if (!data || data.length === 0) {
-        const option = document.createElement("option");
-        option.textContent = "Keine User gefunden";
-        select.appendChild(option);
-        return;
-      }
-
       data.forEach(p => {
         const option = document.createElement("option");
-        option.value = p.id;
+        option.value = p.id; // MUSS auth.user.id sein!
         option.textContent = p.email;
         select.appendChild(option);
       });
     }
 
-    // ➕ ROUTE ERSTELLEN
+    // ➕ TASK ERSTELLEN
     async function createTask() {
       const text = document.getElementById("taskText").value;
       const userId = document.getElementById("userSelect").value;
@@ -92,17 +86,15 @@
         return;
       }
 
-      const { error } = await supabase
-        .from("tasks")
-        .insert({
-          task_text: text,
-          user_id: userId,
-          done: false
-        });
+      const { error } = await supabase.from("tasks").insert({
+        task_text: text,
+        user_id: userId,
+        done: false
+      });
 
       if (error) {
-        console.error(error);
-        alert("Fehler beim Erstellen");
+        console.error("CREATE ERROR:", error);
+        alert(error.message);
         return;
       }
 
@@ -118,8 +110,8 @@
         .eq("id", id);
 
       if (error) {
-        console.error(error);
-        alert("Fehler beim Speichern");
+        console.error("UPDATE ERROR:", error);
+        alert(error.message);
         return;
       }
 
@@ -128,8 +120,8 @@
 
     // 📦 TASKS LADEN
     async function loadTasks() {
-      const { data: userData } = await supabase.auth.getUser();
-      const user = userData.user;
+      const { data: authData } = await supabase.auth.getUser();
+      const user = authData.user;
 
       currentUser = user;
 
@@ -137,6 +129,7 @@
 
       let query = supabase.from("tasks").select("*");
 
+      // User sieht nur eigene Tasks
       if (!isAdmin(user)) {
         query = query.eq("user_id", user.id);
       }
@@ -147,12 +140,12 @@
       list.innerHTML = "";
 
       if (error) {
-        console.error(error);
+        console.error("LOAD ERROR:", error);
         list.innerHTML = "<li>Fehler beim Laden</li>";
         return;
       }
 
-      if (!data || data.length === 0) {
+      if (!data.length) {
         list.innerHTML = "<li>Keine Aufgaben</li>";
         return;
       }
@@ -161,6 +154,8 @@
 
       data.forEach(task => {
         if (task.done) doneCount++;
+
+        console.log("TASK:", task.id, task.user_id); // DEBUG
 
         const li = document.createElement("li");
 
@@ -186,12 +181,14 @@
     window.markDone = markDone;
     window.createTask = createTask;
 
-    // 🚀 START
     window.addEventListener("load", async () => {
       const { data } = await supabase.auth.getUser();
 
       if (data.user) {
         currentUser = data.user;
+
+        document.getElementById("adminPanel").style.display =
+          isAdmin(data.user) ? "block" : "none";
 
         await loadProfiles();
         await loadTasks();
@@ -253,8 +250,6 @@
       background: #ef4444;
       margin-top: 10px;
     }
-
-    .hidden { display: none; }
   </style>
 </head>
 
@@ -269,19 +264,16 @@
   </div>
 
   <!-- APP -->
-  <div id="appView" class="card hidden">
+  <div id="appView" class="card" style="display:none;">
     <h2>Routen</h2>
 
     <div id="adminInfo"></div>
 
     <!-- ADMIN PANEL -->
-    <div id="adminPanel">
+    <div id="adminPanel" style="display:none;">
       <h3>Neue Route zuweisen</h3>
-
       <input id="taskText" placeholder="Route Name">
-
       <select id="userSelect"></select>
-
       <button onclick="createTask()">Zuweisen</button>
     </div>
 
