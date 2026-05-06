@@ -17,6 +17,7 @@
     const ADMIN_EMAIL = "felix.dober@aon.at";
 
     let currentUser = null;
+    let profiles = [];
 
     function isAdmin(user) {
       return user.email === ADMIN_EMAIL;
@@ -27,22 +28,23 @@
       document.getElementById("appView").style.display = view === "app" ? "block" : "none";
     }
 
+    // 🔐 LOGIN
     async function login() {
-      const email = emailInput.value;
-      const password = passwordInput.value;
+      const email = document.getElementById("emailInput").value;
+      const password = document.getElementById("passwordInput").value;
 
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password
       });
 
-      if (error) {
-        alert(error.message);
-        return;
-      }
+      if (error) return alert(error.message);
 
       currentUser = data.user;
+
+      await loadProfiles();
       await loadTasks();
+
       show("app");
     }
 
@@ -52,6 +54,50 @@
       show("login");
     }
 
+    // 👥 PROFILES LADEN (User Liste)
+    async function loadProfiles() {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("*");
+
+      if (error) {
+        console.error(error);
+        return;
+      }
+
+      profiles = data;
+
+      const select = document.getElementById("userSelect");
+      select.innerHTML = "";
+
+      profiles.forEach(p => {
+        const option = document.createElement("option");
+        option.value = p.id;
+        option.textContent = p.email;
+        select.appendChild(option);
+      });
+    }
+
+    // ➕ ROUTE ERSTELLEN (ADMIN)
+    async function createTask() {
+      const text = document.getElementById("taskText").value;
+      const userId = document.getElementById("userSelect").value;
+
+      const { error } = await supabase
+        .from("tasks")
+        .insert({
+          task_text: text,
+          user_id: userId,
+          done: false
+        });
+
+      if (error) return alert(error.message);
+
+      document.getElementById("taskText").value = "";
+      loadTasks();
+    }
+
+    // ✅ ERLEDIGT
     async function markDone(id) {
       await supabase
         .from("tasks")
@@ -61,19 +107,17 @@
       loadTasks();
     }
 
+    // 📦 TASKS LADEN
     async function loadTasks() {
       const { data: userData } = await supabase.auth.getUser();
       const user = userData.user;
+
       currentUser = user;
 
-      if (!user) {
-        show("login");
-        return;
-      }
+      if (!user) return show("login");
 
       let query = supabase.from("tasks").select("*");
 
-      // 👤 User sieht nur eigene
       if (!isAdmin(user)) {
         query = query.eq("user_id", user.id);
       }
@@ -84,7 +128,7 @@
       list.innerHTML = "";
 
       if (error) {
-        list.innerHTML = "<li>Fehler beim Laden</li>";
+        list.innerHTML = "<li>Fehler</li>";
         return;
       }
 
@@ -101,14 +145,8 @@
         const li = document.createElement("li");
 
         li.innerHTML = `
-          <div>
-            ${task.task_text}
-          </div>
-
-          <div style="margin-top:8px;">
-            ${task.done ? "✅ erledigt" : "❌ offen"}
-          </div>
-
+          <div>${task.task_text}</div>
+          <div>${task.done ? "✅ erledigt" : "❌ offen"}</div>
           <button onclick="markDone('${task.id}')" ${task.done ? "disabled" : ""}>
             Erledigt
           </button>
@@ -117,22 +155,27 @@
         list.appendChild(li);
       });
 
-      // 👑 Admin Fortschritt
       if (isAdmin(user)) {
-        const info = document.getElementById("adminInfo");
-        info.innerText = `Fortschritt: ${doneCount} / ${data.length}`;
+        document.getElementById("adminInfo").innerText =
+          `Fortschritt: ${doneCount} / ${data.length}`;
       }
     }
 
     window.login = login;
     window.logout = logout;
     window.markDone = markDone;
+    window.createTask = createTask;
 
+    // 🚀 START
     window.addEventListener("load", async () => {
       const { data } = await supabase.auth.getUser();
 
       if (data.user) {
+        currentUser = data.user;
+
+        await loadProfiles();
         await loadTasks();
+
         show("app");
       } else {
         show("login");
@@ -156,11 +199,11 @@
       background: #111827;
       padding: 25px;
       border-radius: 12px;
-      width: 340px;
+      width: 360px;
       text-align: center;
     }
 
-    input, button {
+    input, select, button {
       width: 100%;
       padding: 10px;
       margin-top: 8px;
@@ -172,10 +215,6 @@
       background: #3b82f6;
       color: white;
       cursor: pointer;
-    }
-
-    button:hover {
-      background: #2563eb;
     }
 
     ul {
@@ -195,9 +234,7 @@
       margin-top: 10px;
     }
 
-    .hidden {
-      display: none;
-    }
+    .hidden { display: none; }
   </style>
 </head>
 
@@ -213,9 +250,20 @@
 
   <!-- APP -->
   <div id="appView" class="card hidden">
-    <h2>Deine Routen</h2>
+    <h2>Routen</h2>
 
-    <div id="adminInfo" style="margin-bottom:10px;"></div>
+    <div id="adminInfo"></div>
+
+    <!-- ADMIN PANEL -->
+    <div id="adminPanel">
+      <h3>Neue Route</h3>
+
+      <input id="taskText" placeholder="Route Name">
+
+      <select id="userSelect"></select>
+
+      <button onclick="createTask()">Zuweisen</button>
+    </div>
 
     <ul id="taskList"></ul>
 
