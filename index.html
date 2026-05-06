@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8">
-  <title>Route App</title>
+  <title>Task App Clean</title>
 
   <script type="module">
     import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
@@ -18,10 +18,12 @@
 
     let currentUser = null;
 
+    // 👑 Admin Check
     function isAdmin(user) {
       return user?.email === ADMIN_EMAIL;
     }
 
+    // 🔁 View Switch
     function show(view) {
       document.getElementById("loginView").style.display = view === "login" ? "block" : "none";
       document.getElementById("appView").style.display = view === "app" ? "block" : "none";
@@ -54,20 +56,17 @@
       show("login");
     }
 
-    // ➕ TASK ERSTELLEN
+    // ➕ TASK ERSTELLEN (ADMIN)
     async function createTask() {
       const text = document.getElementById("taskText").value;
 
-      if (!text) {
-        alert("Bitte Text eingeben");
-        return;
-      }
+      if (!text) return alert("Bitte Text eingeben");
 
       const user = (await supabase.auth.getUser()).data.user;
 
       const { error } = await supabase.from("tasks").insert({
         task_text: text,
-        user_id: user.id,   // 👈 FIX: immer auth.id
+        user_id: user.id,
         done: false
       });
 
@@ -83,8 +82,6 @@
 
     // ✅ ERLEDIGT
     async function markDone(id) {
-      if (!id) return;
-
       const { error } = await supabase
         .from("tasks")
         .update({ done: true })
@@ -110,7 +107,7 @@
 
       let query = supabase.from("tasks").select("*");
 
-      // 👇 User sieht nur eigene Tasks
+      // 👇 USER FILTER
       if (!isAdmin(user)) {
         query = query.eq("user_id", user.id);
       }
@@ -127,7 +124,7 @@
       }
 
       if (!data || data.length === 0) {
-        list.innerHTML = "<li>Keine Aufgaben</li>";
+        list.innerHTML = "<li>Keine Aufgaben vorhanden</li>";
         return;
       }
 
@@ -139,7 +136,7 @@
         const li = document.createElement("li");
 
         li.innerHTML = `
-          <div>${task.task_text}</div>
+          <div><b>${task.task_text}</b></div>
           <div>${task.done ? "✅ erledigt" : "❌ offen"}</div>
           <button onclick="markDone('${task.id}')" ${task.done ? "disabled" : ""}>
             Erledigt
@@ -155,10 +152,11 @@
       }
     }
 
+    // 🌍 GLOBAL
     window.login = login;
     window.logout = logout;
-    window.markDone = markDone;
     window.createTask = createTask;
+    window.markDone = markDone;
 
     // 🚀 START
     window.addEventListener("load", async () => {
@@ -242,15 +240,15 @@
 
   <!-- APP -->
   <div id="appView" class="card" style="display:none;">
-    <h2>Routen</h2>
+    <h2>Tasks</h2>
 
     <div id="adminInfo"></div>
 
     <!-- ADMIN -->
     <div id="adminPanel" style="display:none;">
-      <h3>Neue Route</h3>
-      <input id="taskText" placeholder="Route Name">
-      <button onclick="createTask()">Zuweisen</button>
+      <h3>Neue Aufgabe</h3>
+      <input id="taskText" placeholder="Task">
+      <button onclick="createTask()">Erstellen</button>
     </div>
 
     <ul id="taskList"></ul>
