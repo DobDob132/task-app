@@ -17,7 +17,6 @@
     const ADMIN_EMAIL = "felix.dober@aon.at";
 
     let currentUser = null;
-    let profiles = [];
 
     function isAdmin(user) {
       return user.email === ADMIN_EMAIL;
@@ -54,23 +53,28 @@
       show("login");
     }
 
-    // 👥 PROFILES LADEN (User Liste)
+    // 👥 PROFILES LADEN
     async function loadProfiles() {
       const { data, error } = await supabase
         .from("profiles")
         .select("*");
 
       if (error) {
-        console.error(error);
+        console.error("Profiles Fehler:", error);
         return;
       }
-
-      profiles = data;
 
       const select = document.getElementById("userSelect");
       select.innerHTML = "";
 
-      profiles.forEach(p => {
+      if (!data || data.length === 0) {
+        const option = document.createElement("option");
+        option.textContent = "Keine User gefunden";
+        select.appendChild(option);
+        return;
+      }
+
+      data.forEach(p => {
         const option = document.createElement("option");
         option.value = p.id;
         option.textContent = p.email;
@@ -78,10 +82,15 @@
       });
     }
 
-    // ➕ ROUTE ERSTELLEN (ADMIN)
+    // ➕ ROUTE ERSTELLEN
     async function createTask() {
       const text = document.getElementById("taskText").value;
       const userId = document.getElementById("userSelect").value;
+
+      if (!text || !userId) {
+        alert("Bitte alles ausfüllen");
+        return;
+      }
 
       const { error } = await supabase
         .from("tasks")
@@ -91,7 +100,11 @@
           done: false
         });
 
-      if (error) return alert(error.message);
+      if (error) {
+        console.error(error);
+        alert("Fehler beim Erstellen");
+        return;
+      }
 
       document.getElementById("taskText").value = "";
       loadTasks();
@@ -99,10 +112,16 @@
 
     // ✅ ERLEDIGT
     async function markDone(id) {
-      await supabase
+      const { error } = await supabase
         .from("tasks")
         .update({ done: true })
         .eq("id", id);
+
+      if (error) {
+        console.error(error);
+        alert("Fehler beim Speichern");
+        return;
+      }
 
       loadTasks();
     }
@@ -128,11 +147,12 @@
       list.innerHTML = "";
 
       if (error) {
-        list.innerHTML = "<li>Fehler</li>";
+        console.error(error);
+        list.innerHTML = "<li>Fehler beim Laden</li>";
         return;
       }
 
-      if (!data.length) {
+      if (!data || data.length === 0) {
         list.innerHTML = "<li>Keine Aufgaben</li>";
         return;
       }
@@ -256,7 +276,7 @@
 
     <!-- ADMIN PANEL -->
     <div id="adminPanel">
-      <h3>Neue Route</h3>
+      <h3>Neue Route zuweisen</h3>
 
       <input id="taskText" placeholder="Route Name">
 
