@@ -1,322 +1,290 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-<meta charset="UTF-8">
-<title>Task System</title>
+  <meta charset="UTF-8">
+  <title>Task System</title>
 
-<script type="module">
-import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
+  <script type="module">
+    import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 
-const supabase = createClient(
-  "https://slwjqcstrrsnpgnyhmps.supabase.co",
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNsd2pxY3N0cnJzbnBnbnlobXBzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwMDI0MzYsImV4cCI6MjA5MzU3ODQzNn0.cYRwN0Yp0_m8_qeuYzg0qgSUzClv4O1AU4z4BYyNLG8"
-);
+    const supabase = createClient(
+      "https://slwjqcstrrsnpgnyhmps.supabase.co",
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNsd2pxY3N0cnJzbnBnbnlobXBzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwMDI0MzYsImV4cCI6MjA5MzU3ODQzNn0.cYRwN0Yp0_m8_qeuYzg0qgSUzClv4O1AU4z4BYyNLG8"
+    );
 
-window.supabase = supabase;
+    window.supabase = supabase;
 
-const ADMIN_EMAIL = "felix.dober@aon.at";
+    const ADMIN_EMAIL = "felix.dober@aon.at";
 
-function isAdmin(user) {
-  return user?.email === ADMIN_EMAIL;
-}
+    let currentUser = null;
 
-function show(view) {
-  document.getElementById("loginView").style.display = view === "login" ? "block" : "none";
-  document.getElementById("appView").style.display = view === "app" ? "block" : "none";
-}
+    function isAdmin(user) {
+      return user?.email === ADMIN_EMAIL;
+    }
 
-let currentUser = null;
+    function show(view) {
+      document.getElementById("loginView").style.display = view === "login" ? "block" : "none";
+      document.getElementById("appView").style.display = view === "app" ? "block" : "none";
+    }
 
-//
-// 🔐 LOGIN
-//
-async function login() {
-  const email = document.getElementById("emailInput").value;
-  const password = document.getElementById("passwordInput").value;
+    // 🔐 LOGIN
+    async function login() {
+      const email = document.getElementById("emailInput").value;
+      const password = document.getElementById("passwordInput").value;
 
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email,
-    password
-  });
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      });
 
-  if (error) {
-    console.error("LOGIN ERROR:", error);
-    alert(error.message);
-    return;
-  }
+      if (error) return alert(error.message);
 
-  currentUser = data.user;
+      currentUser = data.user;
 
-  document.getElementById("adminPanel").style.display =
-    isAdmin(data.user) ? "block" : "none";
+      document.getElementById("adminPanel").style.display =
+        isAdmin(currentUser) ? "block" : "none";
 
-  await loadProfiles();
-  await loadTasks();
+      await loadProfiles();
+      await loadTasks();
 
-  show("app");
-}
+      show("app");
+    }
 
-//
-// 🚪 LOGOUT
-//
-async function logout() {
-  await supabase.auth.signOut();
-  currentUser = null;
-  show("login");
-}
+    async function logout() {
+      await supabase.auth.signOut();
+      currentUser = null;
+      show("login");
+    }
 
-//
-// 👥 PROFILES (Dropdown)
-//
-async function loadProfiles() {
-  const { data, error } = await supabase.from("profiles").select("*");
+    // 👥 PROFILES LADEN (Dropdown)
+    async function loadProfiles() {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("*");
 
-  if (error) {
-    console.error(error);
-    return;
-  }
+      if (error) {
+        console.error("Profiles error:", error);
+        return;
+      }
 
-  const select = document.getElementById("userSelect");
-  select.innerHTML = "";
+      const select = document.getElementById("userSelect");
+      select.innerHTML = "";
 
-  data.forEach(p => {
-    const option = document.createElement("option");
-    option.value = p.id;
-    option.textContent = p.email;
-    select.appendChild(option);
-  });
-}
+      data.forEach(p => {
+        if (!p.id) return;
 
-//
-// ➕ TASK ERSTELLEN
-//
-async function createTask() {
-  const text = document.getElementById("taskText").value;
-  const userId = document.getElementById("userSelect").value;
+        const option = document.createElement("option");
+        option.value = p.id;   // wichtig: auth.users.id
+        option.textContent = p.email;
+        select.appendChild(option);
+      });
+    }
 
-  const { error } = await supabase.from("tasks").insert({
-    task_text: text,
-    user_id: userId,
-    done: false
-  });
+    // ➕ TASK ERSTELLEN (ADMIN)
+    async function createTask() {
+      const text = document.getElementById("taskText").value;
+      const userId = document.getElementById("userSelect").value;
 
-  if (error) {
-    console.error(error);
-    alert(error.message);
-    return;
-  }
+      if (!text || !userId) {
+        alert("Bitte alles ausfüllen");
+        return;
+      }
 
-  document.getElementById("taskText").value = "";
-  loadTasks();
-}
+      const { error } = await supabase.from("tasks").insert({
+        task_text: text,
+        user_id: userId,
+        done: false
+      });
 
-//
-// 👤 USER: erledigt melden
-//
-async function markDone(id) {
-  const { error } = await supabase
-    .from("tasks")
-    .update({ done: true })
-    .eq("id", id);
+      if (error) {
+        console.error("CREATE ERROR:", error);
+        alert(error.message);
+        return;
+      }
 
-  if (error) {
-    console.error(error);
-    alert(error.message);
-    return;
-  }
+      document.getElementById("taskText").value = "";
+      loadTasks();
+    }
 
-  loadTasks();
-}
+    // ✅ ERLEDIGT
+    async function markDone(id) {
+      if (!id) return;
 
-//
-// 👑 ADMIN: bestätigen & löschen
-//
-async function confirmDone(id) {
-  const { error } = await supabase
-    .from("tasks")
-    .delete()
-    .eq("id", id);
+      const { error } = await supabase
+        .from("tasks")
+        .update({ done: true })
+        .eq("id", id);
 
-  if (error) {
-    console.error(error);
-    alert(error.message);
-    return;
-  }
+      if (error) {
+        console.error("UPDATE ERROR:", error);
+        alert(error.message);
+        return;
+      }
 
-  loadTasks();
-}
+      loadTasks();
+    }
 
-//
-// 📦 TASKS LADEN
-//
-async function loadTasks() {
-  const { data: authData } = await supabase.auth.getUser();
-  const user = authData.user;
+    // 📦 TASKS LADEN
+    async function loadTasks() {
+      const { data: authData } = await supabase.auth.getUser();
+      const user = authData.user;
 
-  currentUser = user;
+      currentUser = user;
 
-  if (!user) return show("login");
+      if (!user) return show("login");
 
-  let query = supabase.from("tasks").select("*");
+      let query = supabase.from("tasks").select("*");
 
-  if (!isAdmin(user)) {
-    query = query.eq("user_id", user.id);
-  }
+      // User sieht nur eigene Tasks
+      if (!isAdmin(user)) {
+        query = query.eq("user_id", user.id);
+      }
 
-  const { data, error } = await query;
+      const { data, error } = await query;
 
-  if (error) {
-    console.error(error);
-    return;
-  }
+      const list = document.getElementById("taskList");
+      list.innerHTML = "";
 
-  const list = document.getElementById("taskList");
-  list.innerHTML = "";
+      if (error) {
+        console.error(error);
+        list.innerHTML = "<li>Fehler beim Laden</li>";
+        return;
+      }
 
-  let total = data.length;
-  let doneCount = data.filter(t => t.done).length;
+      if (!data || data.length === 0) {
+        list.innerHTML = "<li>Keine Aufgaben</li>";
+        return;
+      }
 
-  data.forEach(task => {
-    const li = document.createElement("li");
+      let doneCount = 0;
 
-    li.innerHTML = `
-      <div><b>${task.task_text}</b></div>
-      <div>${task.done ? "✅ erledigt" : "❌ offen"}</div>
+      data.forEach(task => {
+        if (task.done) doneCount++;
 
-      ${!isAdmin(user) ? `
-        <button onclick="markDone('${task.id}')"
-          ${task.done ? "disabled" : ""}>
-          Erledigt
-        </button>
-      ` : ""}
+        const li = document.createElement("li");
 
-      ${isAdmin(user) ? `
-        <button onclick="confirmDone('${task.id}')"
-          ${task.done ? "" : "disabled"}>
-          Bestätigen & löschen
-        </button>
-      ` : ""}
-    `;
+        li.innerHTML = `
+          <div><b>${task.task_text}</b></div>
+          <div>${task.done ? "✅ erledigt" : "❌ offen"}</div>
+          <button onclick="markDone('${task.id}')" ${task.done ? "disabled" : ""}>
+            Erledigt
+          </button>
+        `;
 
-    list.appendChild(li);
-  });
+        list.appendChild(li);
+      });
 
-  if (isAdmin(user)) {
-    document.getElementById("adminInfo").innerText =
-      `Fortschritt: ${total - doneCount} offen / ${total}`;
-  }
-}
+      if (isAdmin(user)) {
+        document.getElementById("adminInfo").innerText =
+          `Fortschritt: ${doneCount} / ${data.length}`;
+      }
+    }
 
-//
-// 🌍 GLOBAL FUNCTIONS (WICHTIG FIX!)
-//
-window.login = login;
-window.logout = logout;
-window.createTask = createTask;
-window.markDone = markDone;
-window.confirmDone = confirmDone;
+    window.login = login;
+    window.logout = logout;
+    window.createTask = createTask;
+    window.markDone = markDone;
 
-//
-// 🚀 START
-//
-window.addEventListener("load", async () => {
-  const { data } = await supabase.auth.getUser();
+    // 🚀 START
+    window.addEventListener("load", async () => {
+      const { data } = await supabase.auth.getUser();
 
-  if (data.user) {
-    currentUser = data.user;
+      if (data.user) {
+        currentUser = data.user;
 
-    document.getElementById("adminPanel").style.display =
-      isAdmin(data.user) ? "block" : "none";
+        document.getElementById("adminPanel").style.display =
+          isAdmin(data.user) ? "block" : "none";
 
-    await loadProfiles();
-    await loadTasks();
+        await loadProfiles();
+        await loadTasks();
 
-    show("app");
-  } else {
-    show("login");
-  }
-});
-</script>
+        show("app");
+      } else {
+        show("login");
+      }
+    });
+  </script>
 
-<style>
-body {
-  font-family: Arial;
-  background: #0f172a;
-  color: white;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  height: 100vh;
-}
+  <style>
+    body {
+      font-family: Arial;
+      background: #0f172a;
+      color: white;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
 
-.card {
-  background: #111827;
-  padding: 25px;
-  border-radius: 12px;
-  width: 380px;
-  text-align: center;
-}
+    .card {
+      background: #111827;
+      padding: 25px;
+      border-radius: 12px;
+      width: 360px;
+      text-align: center;
+    }
 
-input, select, button {
-  width: 100%;
-  padding: 10px;
-  margin-top: 8px;
-  border-radius: 8px;
-  border: none;
-}
+    input, select, button {
+      width: 100%;
+      padding: 10px;
+      margin-top: 8px;
+      border-radius: 8px;
+      border: none;
+    }
 
-button {
-  background: #3b82f6;
-  color: white;
-  cursor: pointer;
-}
+    button {
+      background: #3b82f6;
+      color: white;
+      cursor: pointer;
+    }
 
-ul {
-  list-style: none;
-  padding: 0;
-}
+    ul {
+      list-style: none;
+      padding: 0;
+    }
 
-li {
-  background: #1f2937;
-  margin: 8px 0;
-  padding: 10px;
-  border-radius: 8px;
-}
+    li {
+      background: #1f2937;
+      margin: 8px 0;
+      padding: 10px;
+      border-radius: 8px;
+    }
 
-.logout {
-  background: #ef4444;
-  margin-top: 10px;
-}
-</style>
+    .logout {
+      background: #ef4444;
+      margin-top: 10px;
+    }
+  </style>
 </head>
 
 <body>
 
-<!-- LOGIN -->
-<div id="loginView" class="card">
-  <h2>Login</h2>
-  <input id="emailInput" placeholder="Email">
-  <input id="passwordInput" type="password" placeholder="Passwort">
-  <button onclick="login()">Login</button>
-</div>
-
-<!-- APP -->
-<div id="appView" class="card" style="display:none;">
-  <h2>Tasks</h2>
-
-  <div id="adminInfo"></div>
-
-  <div id="adminPanel" style="display:none;">
-    <h3>Task zuweisen</h3>
-    <input id="taskText" placeholder="Task">
-    <select id="userSelect"></select>
-    <button onclick="createTask()">Zuweisen</button>
+  <!-- LOGIN -->
+  <div id="loginView" class="card">
+    <h2>Login</h2>
+    <input id="emailInput" placeholder="Email">
+    <input id="passwordInput" type="password" placeholder="Passwort">
+    <button onclick="login()">Login</button>
   </div>
 
-  <ul id="taskList"></ul>
+  <!-- APP -->
+  <div id="appView" class="card" style="display:none;">
+    <h2>Tasks</h2>
 
-  <button class="logout" onclick="logout()">Logout</button>
-</div>
+    <div id="adminInfo"></div>
+
+    <!-- ADMIN -->
+    <div id="adminPanel" style="display:none;">
+      <h3>Task zuweisen</h3>
+      <input id="taskText" placeholder="Task Text">
+      <select id="userSelect"></select>
+      <button onclick="createTask()">Zuweisen</button>
+    </div>
+
+    <ul id="taskList"></ul>
+
+    <button class="logout" onclick="logout()">Logout</button>
+  </div>
 
 </body>
 </html>
