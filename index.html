@@ -16,11 +16,11 @@
 
     const ADMIN_EMAIL = "felix.dober@aon.at";
 
-    let currentUser = null;
-
     function isAdmin(user) {
       return user?.email === ADMIN_EMAIL;
     }
+
+    let currentUser = null;
 
     function show(view) {
       document.getElementById("loginView").style.display = view === "login" ? "block" : "none";
@@ -56,70 +56,65 @@
       show("login");
     }
 
-    // 👥 PROFILES LADEN (Dropdown)
+    // 👥 PROFILES (Dropdown)
     async function loadProfiles() {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("*");
-
-      if (error) {
-        console.error("Profiles error:", error);
-        return;
-      }
+      const { data } = await supabase.from("profiles").select("*");
 
       const select = document.getElementById("userSelect");
       select.innerHTML = "";
 
       data.forEach(p => {
-        if (!p.id) return;
-
         const option = document.createElement("option");
-        option.value = p.id;   // wichtig: auth.users.id
+        option.value = p.id;
         option.textContent = p.email;
         select.appendChild(option);
       });
     }
 
-    // ➕ TASK ERSTELLEN (ADMIN)
+    // ➕ TASK ERSTELLEN
     async function createTask() {
       const text = document.getElementById("taskText").value;
       const userId = document.getElementById("userSelect").value;
 
-      if (!text || !userId) {
-        alert("Bitte alles ausfüllen");
-        return;
-      }
-
       const { error } = await supabase.from("tasks").insert({
         task_text: text,
         user_id: userId,
-        done: false
+        status: "open"
       });
 
-      if (error) {
-        console.error("CREATE ERROR:", error);
-        alert(error.message);
-        return;
-      }
+      if (error) return alert(error.message);
 
       document.getElementById("taskText").value = "";
       loadTasks();
     }
 
-    // ✅ ERLEDIGT
+    // 👤 USER: erledigt melden
     async function markDone(id) {
-      if (!id) return;
-
       const { error } = await supabase
         .from("tasks")
-        .update({ done: true })
+        .update({ status: "done_pending" })
         .eq("id", id);
 
-      if (error) {
-        console.error("UPDATE ERROR:", error);
-        alert(error.message);
-        return;
-      }
+      if (error) return alert(error.message);
+
+      loadTasks();
+    }
+
+    // 👑 ADMIN: bestätigen + löschen
+    async function confirmDone(id) {
+      const { error: updateError } = await supabase
+        .from("tasks")
+        .update({ status: "approved" })
+        .eq("id", id);
+
+      if (updateError) return alert(updateError.message);
+
+      const { error: deleteError } = await supabase
+        .from("tasks")
+        .delete()
+        .eq("id", id);
+
+      if (deleteError) return alert(deleteError.message);
 
       loadTasks();
     }
@@ -135,7 +130,6 @@
 
       let query = supabase.from("tasks").select("*");
 
-      // User sieht nur eigene Tasks
       if (!isAdmin(user)) {
         query = query.eq("user_id", user.id);
       }
@@ -145,47 +139,46 @@
       const list = document.getElementById("taskList");
       list.innerHTML = "";
 
-      if (error) {
-        console.error(error);
-        list.innerHTML = "<li>Fehler beim Laden</li>";
-        return;
-      }
-
-      if (!data || data.length === 0) {
-        list.innerHTML = "<li>Keine Aufgaben</li>";
-        return;
-      }
-
-      let doneCount = 0;
+      if (error) return;
 
       data.forEach(task => {
-        if (task.done) doneCount++;
+
+        let statusText = "";
+        if (task.status === "open") statusText = "❌ offen";
+        if (task.status === "done_pending") statusText = "⏳ wartet auf Bestätigung";
+        if (task.status === "approved") statusText = "✅ erledigt";
 
         const li = document.createElement("li");
 
         li.innerHTML = `
           <div><b>${task.task_text}</b></div>
-          <div>${task.done ? "✅ erledigt" : "❌ offen"}</div>
-          <button onclick="markDone('${task.id}')" ${task.done ? "disabled" : ""}>
-            Erledigt
-          </button>
+          <div>${statusText}</div>
+
+          ${!isAdmin(user) ? `
+            <button onclick="markDone('${task.id}')"
+              ${task.status !== "open" ? "disabled" : ""}>
+              Erledigt melden
+            </button>
+          ` : ""}
+
+          ${isAdmin(user) ? `
+            <button onclick="confirmDone('${task.id}')"
+              ${task.status !== "done_pending" ? "disabled" : ""}>
+              Bestätigen & löschen
+            </button>
+          ` : ""}
         `;
 
         list.appendChild(li);
       });
-
-      if (isAdmin(user)) {
-        document.getElementById("adminInfo").innerText =
-          `Fortschritt: ${doneCount} / ${data.length}`;
-      }
     }
 
     window.login = login;
     window.logout = logout;
     window.createTask = createTask;
     window.markDone = markDone;
+    window.confirmDone = confirmDone;
 
-    // 🚀 START
     window.addEventListener("load", async () => {
       const { data } = await supabase.auth.getUser();
 
@@ -220,7 +213,7 @@
       background: #111827;
       padding: 25px;
       border-radius: 12px;
-      width: 360px;
+      width: 380px;
       text-align: center;
     }
 
@@ -271,12 +264,9 @@
   <div id="appView" class="card" style="display:none;">
     <h2>Tasks</h2>
 
-    <div id="adminInfo"></div>
-
-    <!-- ADMIN -->
     <div id="adminPanel" style="display:none;">
       <h3>Task zuweisen</h3>
-      <input id="taskText" placeholder="Task Text">
+      <input id="taskText" placeholder="Task">
       <select id="userSelect"></select>
       <button onclick="createTask()">Zuweisen</button>
     </div>
