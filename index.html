@@ -2,104 +2,147 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8">
-  <title>Task App</title>
+  <title>Route App</title>
 
   <script type="module">
     import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 
     const supabase = createClient(
       "https://slwjqcstrrsnpgnyhmps.supabase.co",
-      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNsd2pxY3N0cnJzbnBnbnlobXBzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwMDI0MzYsImV4cCI6MjA5MzU3ODQzNn0.cYRwN0Yp0_m8_qeuYzg0qgSUzClv4O1AU4z4BYyNLG8"
+      "YOUR_SUPABASE_ANON_KEY"
     );
 
     window.supabase = supabase;
 
-    // UI wechseln
-    function showApp() {
-      document.getElementById("loginView").style.display = "none";
-      document.getElementById("appView").style.display = "block";
+    const ADMIN_EMAIL = "deine@email.com";
+
+    let currentUser = null;
+
+    function isAdmin(user) {
+      return user.email === ADMIN_EMAIL;
     }
 
-    function showLogin() {
-      document.getElementById("loginView").style.display = "block";
-      document.getElementById("appView").style.display = "none";
+    function show(view) {
+      document.getElementById("loginView").style.display = view === "login" ? "block" : "none";
+      document.getElementById("appView").style.display = view === "app" ? "block" : "none";
     }
 
     async function login() {
-      const email = document.getElementById("email").value;
-      const password = document.getElementById("password").value;
+      const email = emailInput.value;
+      const password = passwordInput.value;
 
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password
       });
 
       if (error) {
-        alert("Login fehlgeschlagen: " + error.message);
+        alert(error.message);
         return;
       }
 
+      currentUser = data.user;
       await loadTasks();
-      showApp();
+      show("app");
     }
 
     async function logout() {
       await supabase.auth.signOut();
-      showLogin();
+      currentUser = null;
+      show("login");
+    }
+
+    async function markDone(id) {
+      await supabase
+        .from("tasks")
+        .update({ done: true })
+        .eq("id", id);
+
+      loadTasks();
     }
 
     async function loadTasks() {
       const { data: userData } = await supabase.auth.getUser();
-      const user = userData?.user;
+      const user = userData.user;
+      currentUser = user;
 
       if (!user) {
-        showLogin();
+        show("login");
         return;
       }
 
-      const { data, error } = await supabase
-        .from("tasks")
-        .select("*")
-        .eq("user_id", user.id);
+      let query = supabase.from("tasks").select("*");
+
+      // 👤 User sieht nur eigene
+      if (!isAdmin(user)) {
+        query = query.eq("user_id", user.id);
+      }
+
+      const { data, error } = await query;
 
       const list = document.getElementById("taskList");
       list.innerHTML = "";
 
       if (error) {
-        list.innerHTML = "<li>Fehler beim Laden der Aufgaben</li>";
+        list.innerHTML = "<li>Fehler beim Laden</li>";
         return;
       }
 
-      if (!data || data.length === 0) {
-        list.innerHTML = "<li>Keine Aufgaben vorhanden</li>";
+      if (!data.length) {
+        list.innerHTML = "<li>Keine Aufgaben</li>";
         return;
       }
+
+      let doneCount = 0;
 
       data.forEach(task => {
+        if (task.done) doneCount++;
+
         const li = document.createElement("li");
-        li.textContent = task.task_text;
+
+        li.innerHTML = `
+          <div>
+            ${task.task_text}
+          </div>
+
+          <div style="margin-top:8px;">
+            ${task.done ? "✅ erledigt" : "❌ offen"}
+          </div>
+
+          <button onclick="markDone('${task.id}')" ${task.done ? "disabled" : ""}>
+            Erledigt
+          </button>
+        `;
+
         list.appendChild(li);
       });
+
+      // 👑 Admin Fortschritt
+      if (isAdmin(user)) {
+        const info = document.getElementById("adminInfo");
+        info.innerText = `Fortschritt: ${doneCount} / ${data.length}`;
+      }
     }
 
     window.login = login;
     window.logout = logout;
+    window.markDone = markDone;
 
-    // Auto-Check beim Laden
     window.addEventListener("load", async () => {
       const { data } = await supabase.auth.getUser();
-      if (data?.user) {
+
+      if (data.user) {
         await loadTasks();
-        showApp();
+        show("app");
       } else {
-        showLogin();
+        show("login");
       }
     });
   </script>
 
   <style>
     body {
-      font-family: Arial, sans-serif;
+      font-family: Arial;
       background: #0f172a;
       color: white;
       margin: 0;
@@ -111,27 +154,21 @@
 
     .card {
       background: #111827;
-      padding: 30px;
+      padding: 25px;
       border-radius: 12px;
-      width: 320px;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+      width: 340px;
       text-align: center;
     }
 
-    input {
+    input, button {
       width: 100%;
       padding: 10px;
-      margin: 8px 0;
-      border: none;
+      margin-top: 8px;
       border-radius: 8px;
+      border: none;
     }
 
     button {
-      width: 100%;
-      padding: 10px;
-      margin-top: 10px;
-      border: none;
-      border-radius: 8px;
       background: #3b82f6;
       color: white;
       cursor: pointer;
@@ -144,19 +181,18 @@
     ul {
       list-style: none;
       padding: 0;
-      margin-top: 10px;
     }
 
     li {
       background: #1f2937;
-      margin: 6px 0;
+      margin: 8px 0;
       padding: 10px;
       border-radius: 8px;
     }
 
     .logout {
       background: #ef4444;
-      margin-top: 15px;
+      margin-top: 10px;
     }
 
     .hidden {
@@ -170,15 +206,19 @@
   <!-- LOGIN -->
   <div id="loginView" class="card">
     <h2>Login</h2>
-    <input id="email" placeholder="Email">
-    <input id="password" type="password" placeholder="Passwort">
-    <button onclick="login()">Einloggen</button>
+    <input id="emailInput" placeholder="Email">
+    <input id="passwordInput" type="password" placeholder="Passwort">
+    <button onclick="login()">Login</button>
   </div>
 
   <!-- APP -->
   <div id="appView" class="card hidden">
-    <h2>Deine Aufgaben</h2>
+    <h2>Deine Routen</h2>
+
+    <div id="adminInfo" style="margin-bottom:10px;"></div>
+
     <ul id="taskList"></ul>
+
     <button class="logout" onclick="logout()">Logout</button>
   </div>
 
