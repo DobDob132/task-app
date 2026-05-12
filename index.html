@@ -2,157 +2,83 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8">
-  <title>Task System</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Task System - Friends Edition</title>
 
   <script type="module">
     import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 
-    const supabase = createClient(
-      "https://slwjqcstrrsnpgnyhmps.supabase.co",
-      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNsd2pxY3N0cnJzbnBnbnlobXBzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwMDI0MzYsImV4cCI6MjA5MzU3ODQzNn0.cYRwN0Yp0_m8_qeuYzg0qgSUzClv4O1AU4z4BYyNLG8"
-    );
-
-    window.supabase = supabase;
-
+    // --- KONFIGURATION ---
+    const SUPABASE_URL = "https://slwjqcstrrsnpgnyhmps.supabase.co";
+    const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNsd2pxY3N0cnJzbnBnbnlobXBzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwMDI0MzYsImV4cCI6MjA5MzU3ODQzNn0.cYRwN0Yp0_m8_qeuYzg0qgSUzClv4O1AU4z4BYyNLG8";
     const ADMIN_EMAIL = "felix.dober@aon.at";
 
+    const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
     let currentUser = null;
 
-    function isAdmin(user) {
-      return user?.email === ADMIN_EMAIL;
-    }
+    // --- HELPER FUNKTIONEN ---
+    const isAdmin = (user) => user?.email === ADMIN_EMAIL;
 
     function show(view) {
       document.getElementById("loginView").style.display = view === "login" ? "block" : "none";
       document.getElementById("appView").style.display = view === "app" ? "block" : "none";
     }
 
-    // 🔐 LOGIN
-    async function login() {
+    // --- AUTH LOGIK ---
+    async function handleLogin() {
       const email = document.getElementById("emailInput").value;
       const password = document.getElementById("passwordInput").value;
 
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password
-      });
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
-      if (error) return alert(error.message);
-
+      if (error) return alert("Login fehlgeschlagen: " + error.message);
+      
       currentUser = data.user;
-
-      document.getElementById("adminPanel").style.display =
-        isAdmin(currentUser) ? "block" : "none";
-
-      await loadProfiles();
-      await loadTasks();
-
-      show("app");
+      initApp();
     }
 
-    async function logout() {
+    async function handleLogout() {
       await supabase.auth.signOut();
       currentUser = null;
       show("login");
     }
 
-    // 👥 PROFILES LADEN (Dropdown)
+    // --- DATEN LADEN ---
     async function loadProfiles() {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("*");
-
-      if (error) {
-        console.error("Profiles error:", error);
-        return;
-      }
+      const { data, error } = await supabase.from("profiles").select("*");
+      if (error) return console.error("Profiles error:", error);
 
       const select = document.getElementById("userSelect");
-      select.innerHTML = "";
+      select.innerHTML = ""; // Leeren
 
       data.forEach(p => {
         if (!p.id) return;
-
         const option = document.createElement("option");
-        option.value = p.id;   // wichtig: auth.users.id
+        option.value = p.id;
         option.textContent = p.email;
         select.appendChild(option);
       });
     }
 
-    // ➕ TASK ERSTELLEN (ADMIN)
-    async function createTask() {
-      const text = document.getElementById("taskText").value;
-      const userId = document.getElementById("userSelect").value;
-
-      if (!text || !userId) {
-        alert("Bitte alles ausfüllen");
-        return;
-      }
-
-      const { error } = await supabase.from("tasks").insert({
-        task_text: text,
-        user_id: userId,
-        done: false
-      });
-
-      if (error) {
-        console.error("CREATE ERROR:", error);
-        alert(error.message);
-        return;
-      }
-
-      document.getElementById("taskText").value = "";
-      loadTasks();
-    }
-
-    // ✅ ERLEDIGT
-    async function markDone(id) {
-      if (!id) return;
-
-      const { error } = await supabase
-        .from("tasks")
-        .update({ done: true })
-        .eq("id", id);
-
-      if (error) {
-        console.error("UPDATE ERROR:", error);
-        alert(error.message);
-        return;
-      }
-
-      loadTasks();
-    }
-
-    // 📦 TASKS LADEN
     async function loadTasks() {
-      const { data: authData } = await supabase.auth.getUser();
-      const user = authData.user;
-
-      currentUser = user;
-
-      if (!user) return show("login");
-
       let query = supabase.from("tasks").select("*");
-
-      // User sieht nur eigene Tasks
-      if (!isAdmin(user)) {
-        query = query.eq("user_id", user.id);
+      
+      // Wenn kein Admin, nur eigene Tasks laden
+      if (!isAdmin(currentUser)) {
+        query = query.eq("user_id", currentUser.id);
       }
 
       const { data, error } = await query;
-
       const list = document.getElementById("taskList");
       list.innerHTML = "";
 
       if (error) {
-        console.error(error);
         list.innerHTML = "<li>Fehler beim Laden</li>";
         return;
       }
 
       if (!data || data.length === 0) {
-        list.innerHTML = "<li>Keine Aufgaben</li>";
+        list.innerHTML = "<li>Keine Aufgaben vorhanden</li>";
         return;
       }
 
@@ -162,43 +88,81 @@
         if (task.done) doneCount++;
 
         const li = document.createElement("li");
+        
+        // Task Text (Sicher gegen XSS durch textContent)
+        const title = document.createElement("div");
+        title.style.fontWeight = "bold";
+        title.textContent = task.task_text;
 
-        li.innerHTML = `
-          <div><b>${task.task_text}</b></div>
-          <div>${task.done ? "✅ erledigt" : "❌ offen"}</div>
-          <button onclick="markDone('${task.id}')" ${task.done ? "disabled" : ""}>
-            Erledigt
-          </button>
-        `;
+        const status = document.createElement("div");
+        status.textContent = task.done ? "✅ erledigt" : "❌ offen";
 
+        const btn = document.createElement("button");
+        btn.textContent = "Erledigt";
+        btn.disabled = task.done;
+        if (!task.done) {
+          btn.addEventListener("click", () => markDone(task.id));
+        }
+
+        li.append(title, status, btn);
         list.appendChild(li);
       });
 
-      if (isAdmin(user)) {
-        document.getElementById("adminInfo").innerText =
-          `Fortschritt: ${doneCount} / ${data.length}`;
+      if (isAdmin(currentUser)) {
+        document.getElementById("adminInfo").textContent = 
+          `Fortschritt: ${doneCount} / ${data.length} erledigt`;
       }
     }
 
-    window.login = login;
-    window.logout = logout;
-    window.createTask = createTask;
-    window.markDone = markDone;
+    // --- AKTIONEN ---
+    async function createTask() {
+      const text = document.getElementById("taskText").value;
+      const userId = document.getElementById("userSelect").value;
 
-    // 🚀 START
+      if (!text || !userId) return alert("Bitte Text eingeben und User wählen");
+
+      const { error } = await supabase.from("tasks").insert({
+        task_text: text,
+        user_id: userId,
+        done: false
+      });
+
+      if (error) return alert(error.message);
+
+      document.getElementById("taskText").value = "";
+      loadTasks();
+    }
+
+    async function markDone(id) {
+      const { error } = await supabase.from("tasks").update({ done: true }).eq("id", id);
+      if (error) return alert(error.message);
+      loadTasks();
+    }
+
+    // --- INITIALISIERUNG ---
+    async function initApp() {
+      document.getElementById("adminPanel").style.display = isAdmin(currentUser) ? "block" : "none";
+      
+      if (isAdmin(currentUser)) {
+        await loadProfiles();
+      }
+      
+      await loadTasks();
+      show("app");
+    }
+
+    // Event Listener beim Laden der Seite binden
     window.addEventListener("load", async () => {
-      const { data } = await supabase.auth.getUser();
+      // Buttons verknüpfen
+      document.getElementById("loginBtn").addEventListener("click", handleLogin);
+      document.getElementById("logoutBtn").addEventListener("click", handleLogout);
+      document.getElementById("createTaskBtn").addEventListener("click", createTask);
 
+      // Session prüfen
+      const { data } = await supabase.auth.getUser();
       if (data.user) {
         currentUser = data.user;
-
-        document.getElementById("adminPanel").style.display =
-          isAdmin(data.user) ? "block" : "none";
-
-        await loadProfiles();
-        await loadTasks();
-
-        show("app");
+        initApp();
       } else {
         show("login");
       }
@@ -207,83 +171,101 @@
 
   <style>
     body {
-      font-family: Arial;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
       background: #0f172a;
       color: white;
       display: flex;
       justify-content: center;
       align-items: center;
-      height: 100vh;
+      min-height: 100vh;
+      margin: 0;
     }
 
     .card {
       background: #111827;
-      padding: 25px;
-      border-radius: 12px;
-      width: 360px;
+      padding: 30px;
+      border-radius: 16px;
+      width: 100%;
+      max-width: 400px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.3);
       text-align: center;
     }
 
+    h2, h3 { margin-top: 0; color: #3b82f6; }
+
     input, select, button {
       width: 100%;
-      padding: 10px;
-      margin-top: 8px;
+      padding: 12px;
+      margin-top: 10px;
       border-radius: 8px;
-      border: none;
+      border: 1px solid #374151;
+      background: #1f2937;
+      color: white;
+      box-sizing: border-box;
     }
 
     button {
       background: #3b82f6;
-      color: white;
+      border: none;
+      font-weight: bold;
       cursor: pointer;
+      transition: background 0.2s;
     }
 
-    ul {
-      list-style: none;
-      padding: 0;
-    }
+    button:hover { background: #2563eb; }
+    button:disabled { background: #4b5563; cursor: not-allowed; }
+
+    ul { list-style: none; padding: 0; margin-top: 20px; }
 
     li {
       background: #1f2937;
-      margin: 8px 0;
-      padding: 10px;
-      border-radius: 8px;
+      margin-bottom: 12px;
+      padding: 15px;
+      border-radius: 10px;
+      text-align: left;
+      border-left: 4px solid #3b82f6;
     }
 
-    .logout {
-      background: #ef4444;
-      margin-top: 10px;
+    .logout { background: #ef4444; margin-top: 20px; }
+    .logout:hover { background: #dc2626; }
+
+    #adminInfo {
+      font-size: 0.9em;
+      margin-bottom: 15px;
+      color: #9ca3af;
+    }
+
+    #adminPanel {
+      border-top: 1px solid #374151;
+      padding-top: 15px;
+      margin-top: 15px;
     }
   </style>
 </head>
-
 <body>
 
-  <!-- LOGIN -->
   <div id="loginView" class="card">
-    <h2>Login</h2>
-    <input id="emailInput" placeholder="Email">
+    <h2>Willkommen</h2>
+    <p>Bitte logge dich ein</p>
+    <input id="emailInput" type="email" placeholder="Deine Email">
     <input id="passwordInput" type="password" placeholder="Passwort">
-    <button onclick="login()">Login</button>
+    <button id="loginBtn">Login</button>
   </div>
 
-  <!-- APP -->
   <div id="appView" class="card" style="display:none;">
-    <h2>Tasks</h2>
-
+    <h2>Meine Tasks</h2>
     <div id="adminInfo"></div>
 
-    <!-- ADMIN -->
     <div id="adminPanel" style="display:none;">
-      <h3>Task zuweisen</h3>
-      <input id="taskText" placeholder="Task Text">
+      <h3>Neuer Task</h3>
+      <input id="taskText" placeholder="Was ist zu tun?">
       <select id="userSelect"></select>
-      <button onclick="createTask()">Zuweisen</button>
+      <button id="createTaskBtn">Zuweisen</button>
     </div>
 
     <ul id="taskList"></ul>
 
-    <button class="logout" onclick="logout()">Logout</button>
+    <button id="logoutBtn" class="logout">Abmelden</button>
   </div>
 
 </body>
