@@ -3,12 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Task System Pro - Admin & User Chat</title>
+  <title>Task System Pro - High Performance</title>
 
   <script type="module">
     import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 
-    // --- KONFIGURATION ---
     const SUPABASE_URL = "https://slwjqcstrrsnpgnyhmps.supabase.co";
     const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNsd2pxY3N0cnJzbnBnbnlobXBzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwMDI0MzYsImV4cCI6MjA5MzU3ODQzNn0.cYRwN0Yp0_m8_qeuYzg0qgSUzClv4O1AU4z4BYyNLG8";
     const ADMIN_EMAIL = "felix.dober@aon.at";
@@ -20,7 +19,6 @@
 
     const isAdmin = (user) => user?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
 
-    // --- FEHLER-HANDLING ---
     function showError(message) {
       const errDiv = document.getElementById("errorDisplay");
       errDiv.textContent = `⚠️ ${message}`;
@@ -30,14 +28,10 @@
 
     async function safeData(promise, context) {
       const { data, error } = await promise;
-      if (error) {
-        showError(`${context}: ${error.message}`);
-        return null;
-      }
+      if (error) { showError(`${context}: ${error.message}`); return null; }
       return data;
     }
 
-    // --- UI NAVIGATION ---
     function showView(viewName) {
       document.getElementById("loginView").style.display = viewName === "login" ? "block" : "none";
       document.getElementById("appView").style.display = viewName === "app" ? "block" : "none";
@@ -50,16 +44,13 @@
       if (event) event.currentTarget.classList.add("active");
     }
 
-    // --- DATEN LADEN ---
     async function loadProfiles() {
       const data = await safeData(supabase.from("profiles").select("*"), "Profile laden");
       if (!data) return;
-
       const select = document.getElementById("userSelect");
       const filterSelect = document.getElementById("adminUserFilter");
       select.innerHTML = ""; 
       filterSelect.innerHTML = '<option value="all">Alle User anzeigen</option>';
-      
       data.forEach(p => {
         profilesMap[p.id] = p.email; 
         select.appendChild(new Option(p.email, p.id));
@@ -69,13 +60,12 @@
 
     async function loadTasks() {
       let query = supabase.from("tasks").select("*");
-      
       if (!isAdmin(currentUser)) {
         query = query.eq("user_id", currentUser.id);
       } else if (currentFilter !== "all") {
         query = query.eq("user_id", currentFilter);
       }
-
+      // Sortierung nach Priorität (Logik im Frontend) oder nach Erstellungsdatum
       const data = await safeData(query.order('created_at', { ascending: false }), "Tasks laden");
       if (data) renderTasks(data);
     }
@@ -87,47 +77,48 @@
 
       tasks.forEach(task => {
         const li = document.createElement("li");
+        li.className = `priority-${task.priority?.toLowerCase() || 'mittel'}`;
         const userIsAdmin = isAdmin(currentUser);
         const isOwner = task.user_id === currentUser.id;
 
-        // Badge für Admin
-        if (userIsAdmin) {
-          const userDisplay = profilesMap[task.user_id] || "User";
-          li.innerHTML += `<div class="user-badge">👤 An: ${userDisplay}</div>`;
-        }
+        // Zeit-Stempel formatieren
+        const dateObj = new Date(task.created_at);
+        const timeStr = dateObj.toLocaleDateString('de-DE') + " " + dateObj.toLocaleTimeString('de-DE', {hour: '2-digit', minute:'2-digit'});
 
-        // Header mit Edit für Admin
-        const header = document.createElement("div");
-        header.className = "task-header";
-        header.innerHTML = `<span class="task-title">${task.task_text}</span>`;
-        if (userIsAdmin) {
-          const editBtn = document.createElement("button");
-          editBtn.className = "small-btn"; editBtn.textContent = "✏️";
-          editBtn.onclick = () => editTaskTitle(task);
-          header.appendChild(editBtn);
-        }
-        li.appendChild(header);
-
-        // Chat-Bereich (Getrennte Felder)
-        const chat = document.createElement("div");
-        chat.className = "chat-box";
-        chat.innerHTML = `
-          <div class="msg admin-msg">
-            <strong>Chef-Anweisung:</strong>
-            <p>${task.admin_notes || "<i>Keine Notiz.</i>"}</p>
-            ${userIsAdmin ? `<button class="tiny-btn" onclick="window.editAdminNote('${task.id}', '${task.admin_notes || ""}')">Bearbeiten</button>` : ""}
-          </div>
-          <div class="msg user-msg">
-            <strong>Rückfrage / Feedback:</strong>
-            <p>${task.user_feedback || "<i>Noch keine Rückmeldung.</i>"}</p>
-            ${isOwner ? `<button class="tiny-btn" onclick="window.editUserFeedback('${task.id}', '${task.user_feedback || ""}')">Antworten</button>` : ""}
+        let html = `
+          <div class="task-meta">
+            <span class="prio-tag">${task.priority || 'Mittel'}</span>
+            <span class="time-tag">📅 Erstellt: ${timeStr}</span>
+            ${task.due_date ? `<span class="due-tag">⌛ Bis: ${new Date(task.due_date).toLocaleDateString('de-DE')}</span>` : ''}
           </div>
         `;
-        li.appendChild(chat);
 
-        // Buttons
-        const btns = document.createElement("div");
-        btns.className = "btn-group";
+        if (userIsAdmin) {
+          html += `<div class="user-badge">👤 An: ${profilesMap[task.user_id] || "User"}</div>`;
+        }
+
+        html += `
+          <div class="task-header">
+            <span class="task-title">${task.task_text}</span>
+            ${userIsAdmin ? `<button class="small-btn" onclick="window.editTaskTitle('${task.id}', '${task.task_text}')">✏️</button>` : ''}
+          </div>
+          <div class="chat-box">
+            <div class="msg admin-msg">
+              <strong>Chef-Anweisung:</strong>
+              <p>${task.admin_notes || "<i>Keine Notiz.</i>"}</p>
+              ${userIsAdmin ? `<button class="tiny-btn" onclick="window.editAdminNote('${task.id}', '${task.admin_notes || ""}')">Bearbeiten</button>` : ""}
+            </div>
+            <div class="msg user-msg">
+              <strong>Rückfrage / Feedback:</strong>
+              <p>${task.user_feedback || "<i>Noch keine Rückmeldung.</i>"}</p>
+              ${isOwner ? `<button class="tiny-btn" onclick="window.editUserFeedback('${task.id}', '${task.user_feedback || ""}')">Antworten</button>` : ""}
+            </div>
+          </div>
+          <div class="btn-group">
+        `;
+        li.innerHTML = html;
+
+        const btns = li.querySelector(".btn-group");
         if (!task.done) {
           const doneBtn = document.createElement("button");
           doneBtn.textContent = "Erledigt ✅";
@@ -149,45 +140,30 @@
           btns.append(delBtn);
           doneList.appendChild(li);
         }
-        li.appendChild(btns);
       });
     }
 
-    // --- AKTIONEN (Global gebunden für onclick) ---
-    async function editTaskTitle(task) {
-      const t = prompt("Aufgabentext ändern:", task.task_text);
-      if (t) {
-        await safeData(supabase.from("tasks").update({ task_text: t }).eq("id", task.id), "Titel ändern");
-        loadTasks();
-      }
-    }
-
-    window.editAdminNote = async (id, current) => {
-      const n = prompt("Anweisung/Notiz für User:", current);
-      if (n !== null) {
-        await safeData(supabase.from("tasks").update({ admin_notes: n }).eq("id", id), "Admin-Notiz");
-        loadTasks();
-      }
+    // --- GLOBALE AKTIONEN ---
+    window.editTaskTitle = async (id, old) => {
+      const t = prompt("Text ändern:", old);
+      if (t) { await safeData(supabase.from("tasks").update({ task_text: t }).eq("id", id), "Titel"); loadTasks(); }
     };
-
-    window.editUserFeedback = async (id, current) => {
-      const f = prompt("Deine Rückfrage an den Admin:", current);
-      if (f !== null) {
-        await safeData(supabase.from("tasks").update({ user_feedback: f }).eq("id", id), "Feedback");
-        loadTasks();
-      }
+    window.editAdminNote = async (id, cur) => {
+      const n = prompt("Anweisung:", cur);
+      if (n !== null) { await safeData(supabase.from("tasks").update({ admin_notes: n }).eq("id", id), "Notiz"); loadTasks(); }
+    };
+    window.editUserFeedback = async (id, cur) => {
+      const f = prompt("Deine Rückfrage:", cur);
+      if (f !== null) { await safeData(supabase.from("tasks").update({ user_feedback: f }).eq("id", id), "Feedback"); loadTasks(); }
     };
 
     async function updateStatus(id, done) {
-      await safeData(supabase.from("tasks").update({ done }).eq("id", id), "Status Update");
+      await safeData(supabase.from("tasks").update({ done }).eq("id", id), "Status");
       loadTasks();
     }
 
     async function deleteTask(id) {
-      if (confirm("Wirklich löschen?")) {
-        await safeData(supabase.from("tasks").delete().eq("id", id), "Löschen");
-        loadTasks();
-      }
+      if (confirm("Löschen?")) { await safeData(supabase.from("tasks").delete().eq("id", id), "Löschen"); loadTasks(); }
     }
 
     async function initApp() {
@@ -200,22 +176,25 @@
       switchTab("openView", { currentTarget: document.getElementById("defaultTab") });
     }
 
-    // --- EVENT LISTENER ---
     window.addEventListener("load", async () => {
       document.getElementById("loginBtn").onclick = async () => {
-        const e = document.getElementById("emailInput").value;
-        const p = document.getElementById("passwordInput").value;
+        const e = document.getElementById("emailInput").value, p = document.getElementById("passwordInput").value;
         const data = await safeData(supabase.auth.signInWithPassword({ email: e, password: p }), "Login");
         if (data) { currentUser = data.user; await initApp(); }
       };
-
       document.getElementById("logoutBtn").onclick = () => { supabase.auth.signOut(); showView("login"); };
       
       document.getElementById("createTaskBtn").onclick = async () => {
         const text = document.getElementById("taskText").value;
         const uId = document.getElementById("userSelect").value;
-        if (!text) return alert("Text eingeben!");
-        await safeData(supabase.from("tasks").insert({ task_text: text, user_id: uId, done: false, admin_notes: "", user_feedback: "" }), "Erstellen");
+        const prio = document.getElementById("prioSelect").value;
+        const due = document.getElementById("dueInput").value;
+        if (!text) return alert("Text fehlt!");
+        await safeData(supabase.from("tasks").insert({ 
+          task_text: text, user_id: uId, done: false, 
+          admin_notes: "", user_feedback: "", 
+          priority: prio, due_date: due || null 
+        }), "Erstellen");
         document.getElementById("taskText").value = "";
         loadTasks();
       };
@@ -232,9 +211,9 @@
 
   <style>
     body { font-family: 'Segoe UI', sans-serif; background: #0f172a; color: white; display: flex; justify-content: center; padding: 20px; margin: 0; }
-    .card { background: #111827; padding: 20px; border-radius: 16px; width: 100%; max-width: 480px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+    .card { background: #111827; padding: 20px; border-radius: 16px; width: 100%; max-width: 500px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
     
-    #errorDisplay { background: #fee2e2; color: #b91c1c; padding: 12px; border-radius: 8px; margin-bottom: 15px; display: none; font-size: 0.85em; }
+    #errorDisplay { background: #fee2e2; color: #b91c1c; padding: 12px; border-radius: 8px; margin-bottom: 15px; display: none; font-size: 0.8em; }
 
     .menu { display: flex; background: #1f2937; border-radius: 12px; padding: 5px; margin-bottom: 15px; }
     .tab-btn { background: transparent; border: none; color: #9ca3af; padding: 10px; cursor: pointer; flex: 1; border-radius: 8px; font-weight: bold; font-size: 0.8em; }
@@ -242,27 +221,32 @@
 
     input, select, button { width: 100%; padding: 12px; margin-top: 10px; border-radius: 8px; border: 1px solid #374151; background: #1f2937; color: white; box-sizing: border-box; }
     button { background: #3b82f6; border: none; cursor: pointer; font-weight: bold; }
-    .small-btn { width: auto; padding: 5px 10px; margin: 0; font-size: 0.7em; }
-    .delete-btn { background: #991b1b; }
-    .undo-btn { background: #059669; }
-
-    ul { list-style: none; padding: 0; }
-    li { background: #1f2937; margin-bottom: 15px; padding: 15px; border-radius: 12px; border-left: 4px solid #3b82f6; }
     
-    .task-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
-    .task-title { font-weight: bold; font-size: 1.1em; flex: 1; }
+    ul { list-style: none; padding: 0; }
+    li { background: #1f2937; margin-bottom: 15px; padding: 15px; border-radius: 12px; border-left: 5px solid #3b82f6; transition: 0.3s; }
+    
+    /* Prioritäts-Farben */
+    li.priority-hoch { border-left-color: #ef4444; }
+    li.priority-mittel { border-left-color: #f59e0b; }
+    li.priority-niedrig { border-left-color: #10b981; }
 
-    .chat-box { display: flex; flex-direction: column; gap: 8px; margin-bottom: 15px; }
-    .msg { padding: 10px; border-radius: 8px; font-size: 0.85em; border-left: 3px solid transparent; }
-    .admin-msg { background: rgba(59, 130, 246, 0.1); border-color: #3b82f6; }
-    .user-msg { background: rgba(16, 185, 129, 0.08); border-color: #10b981; margin-left: 10px; }
+    .task-meta { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+    .prio-tag, .time-tag, .due-tag { font-size: 0.65em; padding: 2px 6px; border-radius: 4px; background: #374151; color: #d1d5db; font-weight: bold; }
+    .priority-hoch .prio-tag { background: #ef4444; color: white; }
+
+    .task-header { display: flex; justify-content: space-between; align-items: flex-start; }
+    .task-title { font-weight: bold; font-size: 1.1em; flex: 1; }
+    .small-btn { width: auto; padding: 4px 8px; margin: 0; font-size: 0.7em; background: #4b5563; }
+
+    .chat-box { display: flex; flex-direction: column; gap: 8px; margin: 15px 0; }
+    .msg { padding: 10px; border-radius: 8px; font-size: 0.85em; }
+    .admin-msg { background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59,130,246,0.2); }
+    .user-msg { background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16,185,129,0.2); margin-left: 10px; }
     .msg strong { display: block; font-size: 0.7em; color: #9ca3af; text-transform: uppercase; margin-bottom: 4px; }
     .msg p { margin: 0; line-height: 1.4; }
 
     .tiny-btn { background: transparent; border: 1px solid #4b5563; color: #9ca3af; padding: 2px 8px; font-size: 0.7em; width: auto; margin-top: 8px; }
-    .user-badge { font-size: 0.7em; color: #60a5fa; margin-bottom: 5px; font-weight: bold; }
-    
-    .filter-label { font-size: 0.75em; color: #9ca3af; text-align: left; display: block; margin-top: 10px; }
+    .user-badge { font-size: 0.75em; color: #3b82f6; margin-bottom: 8px; font-weight: bold; }
     .logout { background: transparent; border: 1px solid #ef4444; color: #ef4444; font-size: 0.8em; margin-top: 20px; }
   </style>
 </head>
@@ -286,15 +270,22 @@
       </div>
 
       <div id="filterSection" style="display:none;">
-        <label class="filter-label">Filter nach User:</label>
         <select id="adminUserFilter"></select>
       </div>
 
       <div id="adminView" class="tab-content" style="display:none;">
-        <h3>Zuweisen</h3>
+        <h3>Neue Aufgabe</h3>
         <input id="taskText" placeholder="Was ist zu tun?">
+        <div style="display:flex; gap:10px;">
+          <select id="prioSelect">
+            <option value="Niedrig">Niedrig</option>
+            <option value="Mittel" selected>Mittel</option>
+            <option value="Hoch">Hoch</option>
+          </select>
+          <input type="date" id="dueInput" style="margin-top:10px;">
+        </div>
         <select id="userSelect"></select>
-        <button id="createTaskBtn">Erstellen</button>
+        <button id="createTaskBtn">Zuweisen</button>
       </div>
 
       <div id="openView" class="tab-content">
