@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Task System - Admin Plus</title>
+  <title>Task System - Admin Fixed</title>
 
   <script type="module">
     import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
@@ -14,9 +14,10 @@
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
     let currentUser = null;
-    let profilesMap = {}; // Speichert user_id -> email für den Admin
+    let profilesMap = {}; 
 
-    const isAdmin = (user) => user?.email === ADMIN_EMAIL;
+    // Prüfung, ob der User Admin ist (Groß/Kleinschreibung ignoriert)
+    const isAdmin = (user) => user?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
 
     function showView(viewName) {
       document.getElementById("loginView").style.display = viewName === "login" ? "block" : "none";
@@ -36,7 +37,7 @@
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) return alert("Fehler: " + error.message);
       currentUser = data.user;
-      initApp();
+      await initApp();
     }
 
     async function handleLogout() {
@@ -47,14 +48,17 @@
 
     async function loadProfiles() {
       const { data, error } = await supabase.from("profiles").select("*");
-      if (error) return;
+      if (error) {
+        console.error("Fehler beim Laden der Profile:", error);
+        return;
+      }
       
       const select = document.getElementById("userSelect");
       select.innerHTML = ""; 
-      profilesMap = {}; // Reset
+      profilesMap = {}; 
 
       data.forEach(p => {
-        profilesMap[p.id] = p.email; // ID zu Email Mapping speichern
+        profilesMap[p.id] = p.email; 
         const option = document.createElement("option");
         option.value = p.id;
         option.textContent = p.email;
@@ -64,6 +68,8 @@
 
     async function loadTasks() {
       let query = supabase.from("tasks").select("*");
+      
+      // Wenn kein Admin, nur eigene Tasks laden
       if (!isAdmin(currentUser)) {
         query = query.eq("user_id", currentUser.id);
       }
@@ -79,19 +85,20 @@
 
       data.forEach(task => {
         const li = document.createElement("li");
-        const title = document.createElement("div");
-        title.style.fontWeight = "bold";
-        title.textContent = task.task_text;
-
-        // Info für Admin: Wem gehört der Task?
+        
+        // --- ZUORDNUNG ANZEIGEN (Badge) ---
+        // Wenn Admin: Zeige Email aus Map oder Fallback auf ID
         if (isAdmin(currentUser)) {
-          const userEmail = profilesMap[task.user_id] || "Unbekannter User";
-          const info = document.createElement("div");
-          info.className = "user-badge";
-          info.textContent = `👤 Für: ${userEmail}`;
-          li.appendChild(info);
+          const userDisplay = profilesMap[task.user_id] || `ID: ${task.user_id.substring(0,8)}...`;
+          const badge = document.createElement("div");
+          badge.className = "user-badge";
+          badge.textContent = `👤 ${userDisplay}`;
+          li.appendChild(badge);
         }
 
+        const title = document.createElement("div");
+        title.className = "task-title";
+        title.textContent = task.task_text;
         li.appendChild(title);
 
         const btnContainer = document.createElement("div");
@@ -105,7 +112,6 @@
           li.append(btnContainer);
           openList.appendChild(li);
         } else {
-          // Nur Admin darf "Wieder öffnen"
           if (isAdmin(currentUser)) {
             const undoBtn = document.createElement("button");
             undoBtn.textContent = "↩ Wieder öffnen";
@@ -127,42 +133,51 @@
 
       if (isAdmin(currentUser)) {
         const doneCount = data.filter(t => t.done).length;
-        document.getElementById("adminInfo").textContent = `Status: ${doneCount} / ${data.length} Aufgaben erledigt`;
+        document.getElementById("adminInfo").textContent = `Admin-Modus: ${doneCount} / ${data.length} Tasks erledigt`;
       }
     }
 
     async function createTask() {
       const text = document.getElementById("taskText").value;
       const userId = document.getElementById("userSelect").value;
-      if (!text || !userId) return alert("Bitte alles ausfüllen");
-      const { error } = await supabase.from("tasks").insert({ task_text: text, user_id: userId, done: false });
+      if (!text || !userId) return alert("Bitte Text eingeben und User wählen");
+      
+      const { error } = await supabase.from("tasks").insert({ 
+        task_text: text, 
+        user_id: userId, 
+        done: false 
+      });
+      
       if (error) return alert(error.message);
       document.getElementById("taskText").value = "";
-      loadTasks();
-      alert("Erfolgreich zugewiesen!");
+      await loadTasks();
+      alert("Task erfolgreich zugewiesen!");
     }
 
     async function updateStatus(id, isDone) {
       await supabase.from("tasks").update({ done: isDone }).eq("id", id);
-      loadTasks();
+      await loadTasks();
     }
 
     async function deleteTask(id) {
       if (confirm("Aufgabe endgültig löschen?")) {
         await supabase.from("tasks").delete().eq("id", id);
-        loadTasks();
+        await loadTasks();
       }
     }
 
     async function initApp() {
       const isUserAdmin = isAdmin(currentUser);
+      
+      // Tab nur für Admin zeigen
       document.getElementById("adminTabBtn").style.display = isUserAdmin ? "inline-block" : "none";
       
-      // Admin lädt Profilnamen für die "Zugeordnet"-Anzeige
-      if (isUserAdmin) await loadProfiles();
-      
+      // Daten laden
+      await loadProfiles(); // Profile laden für Map
       await loadTasks();
+      
       showView("app");
+      // Auf "Offen" Tab springen
       switchTab("openView", { currentTarget: document.getElementById("defaultTab") });
     }
 
@@ -178,7 +193,7 @@
       const { data } = await supabase.auth.getUser();
       if (data.user) {
         currentUser = data.user;
-        initApp();
+        await initApp();
       } else {
         showView("login");
       }
@@ -186,28 +201,40 @@
   </script>
 
   <style>
-    body { font-family: 'Segoe UI', sans-serif; background: #0f172a; color: white; display: flex; justify-content: center; min-height: 100vh; margin: 0; padding-top: 50px; }
+    body { font-family: 'Segoe UI', sans-serif; background: #0f172a; color: white; display: flex; justify-content: center; min-height: 100vh; margin: 0; padding-top: 20px; }
     .card { background: #111827; padding: 20px; border-radius: 16px; width: 100%; max-width: 450px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.5); height: fit-content; }
     
     .menu { display: flex; background: #1f2937; border-radius: 12px; padding: 5px; margin-bottom: 20px; }
-    .tab-btn { background: transparent; border: none; color: #9ca3af; padding: 10px; cursor: pointer; flex: 1; border-radius: 8px; font-weight: bold; transition: 0.2s; }
+    .tab-btn { background: transparent; border: none; color: #9ca3af; padding: 10px; cursor: pointer; flex: 1; border-radius: 8px; font-weight: bold; transition: 0.2s; font-size: 0.85em; }
     .tab-btn.active { background: #3b82f6; color: white; }
 
     input, select, button { width: 100%; padding: 12px; margin-top: 10px; border-radius: 8px; border: 1px solid #374151; background: #1f2937; color: white; box-sizing: border-box; }
     button { background: #3b82f6; border: none; cursor: pointer; font-weight: bold; }
     button:hover { background: #2563eb; }
 
-    .delete-btn { background: #991b1b; margin-top: 5px; }
-    .delete-btn:hover { background: #b91c1c; }
-    
-    .undo-btn { background: #10b981; margin-top: 5px; }
-    .undo-btn:hover { background: #059669; }
+    .delete-btn { background: #991b1b; }
+    .undo-btn { background: #10b981; }
 
     ul { list-style: none; padding: 0; text-align: left; }
-    li { background: #1f2937; margin-bottom: 10px; padding: 15px; border-radius: 10px; border-left: 4px solid #3b82f6; }
+    li { background: #1f2937; margin-bottom: 12px; padding: 15px; border-radius: 10px; border-left: 4px solid #3b82f6; position: relative; }
 
-    .user-badge { font-size: 0.75em; color: #3b82f6; background: rgba(59, 130, 246, 0.1); padding: 2px 6px; border-radius: 4px; display: inline-block; margin-bottom: 5px; }
-    .btn-group { display: flex; flex-direction: column; gap: 5px; margin-top: 10px; }
+    .task-title { font-weight: bold; margin-top: 5px; font-size: 1.05em; }
+    
+    /* Der wichtige Badge für die Zuordnung */
+    .user-badge { 
+      font-size: 0.7em; 
+      color: #60a5fa; 
+      background: rgba(59, 130, 246, 0.15); 
+      padding: 3px 8px; 
+      border-radius: 5px; 
+      display: inline-block; 
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-weight: bold;
+    }
+
+    .btn-group { display: flex; gap: 8px; margin-top: 12px; }
+    .btn-group button { margin-top: 0; padding: 8px; font-size: 0.85em; }
 
     .logout { background: transparent; color: #ef4444; border: 1px solid #ef4444; margin-top: 20px; font-size: 0.8em; }
     #adminInfo { font-size: 0.85em; color: #3b82f6; margin-bottom: 10px; font-weight: bold; }
@@ -234,7 +261,7 @@
     <div id="adminView" class="tab-content" style="display:none;">
       <h3>Aufgabe zuweisen</h3>
       <input id="taskText" placeholder="Was ist zu tun?">
-      <p style="text-align:left; font-size: 0.8em; margin-bottom: 0;">Zuweisen an:</p>
+      <p style="text-align:left; font-size: 0.8em; margin-bottom: 0; margin-top: 10px; color: #9ca3af;">Zuweisen an:</p>
       <select id="userSelect"></select>
       <button id="createTaskBtn">Task erstellen</button>
     </div>
@@ -245,7 +272,7 @@
     </div>
 
     <div id="doneView" class="tab-content" style="display:none;">
-      <h3>Archiv</h3>
+      <h3>Erledigte Aufgaben</h3>
       <ul id="doneTaskList"></ul>
     </div>
 
