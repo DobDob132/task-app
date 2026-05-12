@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Task System - Admin Fixed</title>
+  <title>Task System Pro</title>
 
   <script type="module">
     import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
@@ -15,10 +15,29 @@
     const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
     let currentUser = null;
     let profilesMap = {}; 
+    let currentFilter = "all";
 
-    // Prüfung, ob der User Admin ist (Groß/Kleinschreibung ignoriert)
     const isAdmin = (user) => user?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
 
+    // --- FEHLER-HANDLING ---
+    function handleError(error, context) {
+      console.error(`Fehler bei ${context}:`, error);
+      const errorDisplay = document.getElementById("errorDisplay");
+      errorDisplay.textContent = `⚠️ ${context}: ${error.message}`;
+      errorDisplay.style.display = "block";
+      setTimeout(() => { errorDisplay.style.display = "none"; }, 5000);
+    }
+
+    async function safeDataFetch(promise, context) {
+      const { data, error } = await promise;
+      if (error) {
+        handleError(error, context);
+        return null;
+      }
+      return data;
+    }
+
+    // --- UI LOGIK ---
     function showView(viewName) {
       document.getElementById("loginView").style.display = viewName === "login" ? "block" : "none";
       document.getElementById("appView").style.display = viewName === "app" ? "block" : "none";
@@ -31,13 +50,15 @@
       if (event) event.currentTarget.classList.add("active");
     }
 
+    // --- AUTH ---
     async function handleLogin() {
       const email = document.getElementById("emailInput").value;
       const password = document.getElementById("passwordInput").value;
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) return alert("Fehler: " + error.message);
-      currentUser = data.user;
-      await initApp();
+      const data = await safeDataFetch(supabase.auth.signInWithPassword({ email, password }), "Login");
+      if (data) {
+        currentUser = data.user;
+        await initApp();
+      }
     }
 
     async function handleLogout() {
@@ -46,61 +67,80 @@
       showView("login");
     }
 
+    // --- DATEN LADEN ---
     async function loadProfiles() {
-      const { data, error } = await supabase.from("profiles").select("*");
-      if (error) {
-        console.error("Fehler beim Laden der Profile:", error);
-        return;
-      }
-      
+      const data = await safeDataFetch(supabase.from("profiles").select("*"), "Profile laden");
+      if (!data) return;
+
       const select = document.getElementById("userSelect");
+      const filterSelect = document.getElementById("adminUserFilter");
+      
       select.innerHTML = ""; 
+      filterSelect.innerHTML = '<option value="all">Alle User anzeigen</option>';
       profilesMap = {}; 
 
       data.forEach(p => {
         profilesMap[p.id] = p.email; 
-        const option = document.createElement("option");
-        option.value = p.id;
-        option.textContent = p.email;
+        const option = new Option(p.email, p.id);
         select.appendChild(option);
+        filterSelect.appendChild(new Option(p.email, p.id));
       });
     }
 
     async function loadTasks() {
       let query = supabase.from("tasks").select("*");
       
-      // Wenn kein Admin, nur eigene Tasks laden
       if (!isAdmin(currentUser)) {
         query = query.eq("user_id", currentUser.id);
+      } else if (currentFilter !== "all") {
+        query = query.eq("user_id", currentFilter);
       }
 
-      const { data, error } = await query;
+      const data = await safeDataFetch(query.order('created_at', { ascending: false }), "Tasks laden");
+      if (!data) return;
+
+      renderTasks(data);
+    }
+
+    function renderTasks(tasks) {
       const openList = document.getElementById("openTaskList");
       const doneList = document.getElementById("doneTaskList");
-      
       openList.innerHTML = "";
       doneList.innerHTML = "";
 
-      if (error || !data) return;
-
-      data.forEach(task => {
+      tasks.forEach(task => {
         const li = document.createElement("li");
         
-        // --- ZUORDNUNG ANZEIGEN (Badge) ---
-        // Wenn Admin: Zeige Email aus Map oder Fallback auf ID
+        // Admin Badge & Info
         if (isAdmin(currentUser)) {
-          const userDisplay = profilesMap[task.user_id] || `ID: ${task.user_id.substring(0,8)}...`;
-          const badge = document.createElement("div");
-          badge.className = "user-badge";
-          badge.textContent = `👤 ${userDisplay}`;
-          li.appendChild(badge);
+          const userDisplay = profilesMap[task.user_id] || "Unbekannter User";
+          li.innerHTML += `<div class="user-badge">👤 ${userDisplay}</div>`;
         }
 
-        const title = document.createElement("div");
-        title.className = "task-title";
-        title.textContent = task.task_text;
-        li.appendChild(title);
+        // Task Text & Edit Button
+        const titleContainer = document.createElement("div");
+        titleContainer.className = "task-header";
+        titleContainer.innerHTML = `<span class="task-title" id="text-${task.id}">${task.task_text}</span>`;
+        
+        if (isAdmin(currentUser)) {
+          const editBtn = document.createElement("button");
+          editBtn.className = "small-btn";
+          editBtn.textContent = "✏️";
+          editBtn.onclick = () => editTask(task);
+          titleContainer.appendChild(editBtn);
+        }
+        li.appendChild(titleContainer);
 
+        // Kommentar-Sektion
+        const commBox = document.createElement("div");
+        commBox.className = "comment-section";
+        commBox.innerHTML = `
+          <p class="comment-text">💬 ${task.comments || "Kein Kommentar vorhanden."}</p>
+          ${isAdmin(currentUser) ? `<button class="small-btn" onclick="addComment('${task.id}')">Kommentar ändern</button>` : ""}
+        `;
+        li.appendChild(commBox);
+
+        // Buttons
         const btnContainer = document.createElement("div");
         btnContainer.className = "btn-group";
 
@@ -109,89 +149,88 @@
           doneBtn.textContent = "Erledigt ✅";
           doneBtn.onclick = () => updateStatus(task.id, true);
           btnContainer.append(doneBtn);
-          li.append(btnContainer);
           openList.appendChild(li);
         } else {
           if (isAdmin(currentUser)) {
             const undoBtn = document.createElement("button");
-            undoBtn.textContent = "↩ Wieder öffnen";
+            undoBtn.textContent = "↩ Öffnen";
             undoBtn.className = "undo-btn";
             undoBtn.onclick = () => updateStatus(task.id, false);
             btnContainer.append(undoBtn);
           }
-
-          const deleteBtn = document.createElement("button");
-          deleteBtn.textContent = "Löschen 🗑️";
-          deleteBtn.className = "delete-btn";
-          deleteBtn.onclick = () => deleteTask(task.id);
-          
-          btnContainer.append(deleteBtn);
-          li.append(btnContainer);
+          const delBtn = document.createElement("button");
+          delBtn.textContent = "Löschen 🗑️";
+          delBtn.className = "delete-btn";
+          delBtn.onclick = () => deleteTask(task.id);
+          btnContainer.append(delBtn);
           doneList.appendChild(li);
         }
+        li.appendChild(btnContainer);
       });
+    }
 
-      if (isAdmin(currentUser)) {
-        const doneCount = data.filter(t => t.done).length;
-        document.getElementById("adminInfo").textContent = `Admin-Modus: ${doneCount} / ${data.length} Tasks erledigt`;
+    // --- AKTIONEN ---
+    async function editTask(task) {
+      const newText = prompt("Aufgabe bearbeiten:", task.task_text);
+      if (newText && newText !== task.task_text) {
+        await safeDataFetch(supabase.from("tasks").update({ task_text: newText }).eq("id", task.id), "Task bearbeiten");
+        loadTasks();
       }
     }
 
-    async function createTask() {
-      const text = document.getElementById("taskText").value;
-      const userId = document.getElementById("userSelect").value;
-      if (!text || !userId) return alert("Bitte Text eingeben und User wählen");
-      
-      const { error } = await supabase.from("tasks").insert({ 
-        task_text: text, 
-        user_id: userId, 
-        done: false 
-      });
-      
-      if (error) return alert(error.message);
-      document.getElementById("taskText").value = "";
-      await loadTasks();
-      alert("Task erfolgreich zugewiesen!");
-    }
+    window.addComment = async (id) => {
+      const note = prompt("Kommentar/Anweisung hinzufügen:");
+      if (note !== null) {
+        await safeDataFetch(supabase.from("tasks").update({ comments: note }).eq("id", id), "Kommentar speichern");
+        loadTasks();
+      }
+    };
 
     async function updateStatus(id, isDone) {
-      await supabase.from("tasks").update({ done: isDone }).eq("id", id);
-      await loadTasks();
+      await safeDataFetch(supabase.from("tasks").update({ done: isDone }).eq("id", id), "Status Update");
+      loadTasks();
     }
 
     async function deleteTask(id) {
-      if (confirm("Aufgabe endgültig löschen?")) {
-        await supabase.from("tasks").delete().eq("id", id);
-        await loadTasks();
+      if (confirm("Aufgabe löschen?")) {
+        await safeDataFetch(supabase.from("tasks").delete().eq("id", id), "Löschen");
+        loadTasks();
       }
     }
 
     async function initApp() {
       const isUserAdmin = isAdmin(currentUser);
-      
-      // Tab nur für Admin zeigen
       document.getElementById("adminTabBtn").style.display = isUserAdmin ? "inline-block" : "none";
+      document.getElementById("filterSection").style.display = isUserAdmin ? "block" : "none";
       
-      // Daten laden
-      await loadProfiles(); // Profile laden für Map
+      await loadProfiles();
       await loadTasks();
-      
       showView("app");
-      // Auf "Offen" Tab springen
       switchTab("openView", { currentTarget: document.getElementById("defaultTab") });
     }
 
     window.addEventListener("load", async () => {
       document.getElementById("loginBtn").onclick = handleLogin;
       document.getElementById("logoutBtn").onclick = handleLogout;
-      document.getElementById("createTaskBtn").onclick = createTask;
+      document.getElementById("createTaskBtn").onclick = async () => {
+        const text = document.getElementById("taskText").value;
+        const uId = document.getElementById("userSelect").value;
+        await safeDataFetch(supabase.from("tasks").insert({ task_text: text, user_id: uId, done: false }), "Erstellen");
+        document.getElementById("taskText").value = "";
+        loadTasks();
+      };
       
+      document.getElementById("adminUserFilter").onchange = (e) => {
+        currentFilter = e.target.value;
+        loadTasks();
+      };
+
       document.getElementById("adminTabBtn").onclick = (e) => switchTab("adminView", e);
       document.getElementById("defaultTab").onclick = (e) => switchTab("openView", e);
       document.getElementById("doneTabBtn").onclick = (e) => switchTab("doneView", e);
 
       const { data } = await supabase.auth.getUser();
-      if (data.user) {
+      if (data?.user) {
         currentUser = data.user;
         await initApp();
       } else {
@@ -201,82 +240,81 @@
   </script>
 
   <style>
-    body { font-family: 'Segoe UI', sans-serif; background: #0f172a; color: white; display: flex; justify-content: center; min-height: 100vh; margin: 0; padding-top: 20px; }
-    .card { background: #111827; padding: 20px; border-radius: 16px; width: 100%; max-width: 450px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.5); height: fit-content; }
+    body { font-family: 'Segoe UI', sans-serif; background: #0f172a; color: white; display: flex; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; }
+    .card { background: #111827; padding: 20px; border-radius: 16px; width: 100%; max-width: 450px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); height: fit-content; }
     
-    .menu { display: flex; background: #1f2937; border-radius: 12px; padding: 5px; margin-bottom: 20px; }
-    .tab-btn { background: transparent; border: none; color: #9ca3af; padding: 10px; cursor: pointer; flex: 1; border-radius: 8px; font-weight: bold; transition: 0.2s; font-size: 0.85em; }
+    #errorDisplay { background: #fee2e2; color: #b91c1c; padding: 10px; border-radius: 8px; margin-bottom: 15px; display: none; font-size: 0.9em; font-weight: bold; }
+    
+    .menu { display: flex; background: #1f2937; border-radius: 12px; padding: 5px; margin-bottom: 15px; }
+    .tab-btn { background: transparent; border: none; color: #9ca3af; padding: 10px; cursor: pointer; flex: 1; border-radius: 8px; font-weight: bold; font-size: 0.8em; }
     .tab-btn.active { background: #3b82f6; color: white; }
 
     input, select, button { width: 100%; padding: 12px; margin-top: 10px; border-radius: 8px; border: 1px solid #374151; background: #1f2937; color: white; box-sizing: border-box; }
-    button { background: #3b82f6; border: none; cursor: pointer; font-weight: bold; }
-    button:hover { background: #2563eb; }
+    button { background: #3b82f6; border: none; cursor: pointer; font-weight: bold; transition: 0.2s; }
+    button:hover { opacity: 0.9; }
 
+    .small-btn { width: auto; padding: 4px 8px; font-size: 0.7em; margin-top: 0; margin-left: 10px; display: inline-block; background: #4b5563; }
     .delete-btn { background: #991b1b; }
-    .undo-btn { background: #10b981; }
+    .undo-btn { background: #059669; }
 
-    ul { list-style: none; padding: 0; text-align: left; }
-    li { background: #1f2937; margin-bottom: 12px; padding: 15px; border-radius: 10px; border-left: 4px solid #3b82f6; position: relative; }
+    ul { list-style: none; padding: 0; }
+    li { background: #1f2937; margin-bottom: 15px; padding: 15px; border-radius: 12px; border-left: 4px solid #3b82f6; }
 
-    .task-title { font-weight: bold; margin-top: 5px; font-size: 1.05em; }
+    .task-header { display: flex; justify-content: space-between; align-items: center; }
+    .task-title { font-weight: bold; font-size: 1.1em; }
     
-    /* Der wichtige Badge für die Zuordnung */
-    .user-badge { 
-      font-size: 0.7em; 
-      color: #60a5fa; 
-      background: rgba(59, 130, 246, 0.15); 
-      padding: 3px 8px; 
-      border-radius: 5px; 
-      display: inline-block; 
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      font-weight: bold;
-    }
+    .comment-section { background: rgba(0,0,0,0.2); padding: 8px; border-radius: 6px; margin-top: 10px; }
+    .comment-text { font-size: 0.85em; color: #d1d5db; margin: 0; }
 
-    .btn-group { display: flex; gap: 8px; margin-top: 12px; }
-    .btn-group button { margin-top: 0; padding: 8px; font-size: 0.85em; }
-
+    .user-badge { font-size: 0.7em; color: #60a5fa; background: rgba(59, 130, 246, 0.1); padding: 2px 6px; border-radius: 4px; font-weight: bold; margin-bottom: 8px; }
+    .filter-label { font-size: 0.8em; color: #9ca3af; margin-top: 15px; display: block; text-align: left; }
+    
     .logout { background: transparent; color: #ef4444; border: 1px solid #ef4444; margin-top: 20px; font-size: 0.8em; }
-    #adminInfo { font-size: 0.85em; color: #3b82f6; margin-bottom: 10px; font-weight: bold; }
   </style>
 </head>
 <body>
 
-  <div id="loginView" class="card">
-    <h2>Task Manager</h2>
-    <input id="emailInput" type="email" placeholder="Email">
-    <input id="passwordInput" type="password" placeholder="Passwort">
-    <button id="loginBtn">Einloggen</button>
-  </div>
+  <div class="card">
+    <div id="errorDisplay"></div>
 
-  <div id="appView" class="card" style="display:none;">
-    <div id="adminInfo"></div>
-
-    <div class="menu">
-      <button class="tab-btn" id="adminTabBtn">➕ Zuweisen</button>
-      <button class="tab-btn" id="defaultTab">⏳ Offen</button>
-      <button class="tab-btn" id="doneTabBtn">✅ Erledigt</button>
+    <div id="loginView">
+      <h2>Task Manager Login</h2>
+      <input id="emailInput" type="email" placeholder="Email">
+      <input id="passwordInput" type="password" placeholder="Passwort">
+      <button id="loginBtn">Einloggen</button>
     </div>
 
-    <div id="adminView" class="tab-content" style="display:none;">
-      <h3>Aufgabe zuweisen</h3>
-      <input id="taskText" placeholder="Was ist zu tun?">
-      <p style="text-align:left; font-size: 0.8em; margin-bottom: 0; margin-top: 10px; color: #9ca3af;">Zuweisen an:</p>
-      <select id="userSelect"></select>
-      <button id="createTaskBtn">Task erstellen</button>
-    </div>
+    <div id="appView" style="display:none;">
+      <div class="menu">
+        <button class="tab-btn" id="adminTabBtn">➕ Neu</button>
+        <button class="tab-btn" id="defaultTab">⏳ Offen</button>
+        <button class="tab-btn" id="doneTabBtn">✅ Erledigt</button>
+      </div>
 
-    <div id="openView" class="tab-content">
-      <h3>Offene Aufgaben</h3>
-      <ul id="openTaskList"></ul>
-    </div>
+      <div id="filterSection" style="display:none;">
+        <label class="filter-label">Anzeige filtern:</label>
+        <select id="adminUserFilter" style="margin-top: 5px; margin-bottom: 15px;"></select>
+      </div>
 
-    <div id="doneView" class="tab-content" style="display:none;">
-      <h3>Erledigte Aufgaben</h3>
-      <ul id="doneTaskList"></ul>
-    </div>
+      <div id="adminView" class="tab-content" style="display:none;">
+        <h3>Zuweisen</h3>
+        <input id="taskText" placeholder="Aufgabe eingeben...">
+        <select id="userSelect"></select>
+        <button id="createTaskBtn">Erstellen & Zuweisen</button>
+      </div>
 
-    <button id="logoutBtn" class="logout">Abmelden</button>
+      <div id="openView" class="tab-content">
+        <h3>Offene Aufgaben</h3>
+        <ul id="openTaskList"></ul>
+      </div>
+
+      <div id="doneView" class="tab-content" style="display:none;">
+        <h3>Erledigt</h3>
+        <ul id="doneTaskList"></ul>
+      </div>
+
+      <button id="logoutBtn" class="logout">Abmelden</button>
+    </div>
   </div>
 
 </body>
