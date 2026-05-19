@@ -16,6 +16,7 @@
     let currentUser = null;
     let profilesMap = {}; 
     let currentFilter = "all";
+    let realtimeChannel = null; // Speicher für den Live-Kanal
 
     const isAdmin = (user) => user?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
 
@@ -65,7 +66,6 @@
       } else if (currentFilter !== "all") {
         query = query.eq("user_id", currentFilter);
       }
-      // Sortierung nach Priorität (Logik im Frontend) oder nach Erstellungsdatum
       const data = await safeData(query.order('created_at', { ascending: false }), "Tasks laden");
       if (data) renderTasks(data);
     }
@@ -81,7 +81,6 @@
         const userIsAdmin = isAdmin(currentUser);
         const isOwner = task.user_id === currentUser.id;
 
-        // Zeit-Stempel formatieren
         const dateObj = new Date(task.created_at);
         const timeStr = dateObj.toLocaleDateString('de-DE') + " " + dateObj.toLocaleTimeString('de-DE', {hour: '2-digit', minute:'2-digit'});
 
@@ -166,12 +165,40 @@
       if (confirm("Löschen?")) { await safeData(supabase.from("tasks").delete().eq("id", id), "Löschen"); loadTasks(); }
     }
 
+    // Funktion für Echtzeit-Updates (Realtime)
+    function setupRealtime() {
+      // Falls bereits ein Kanal offen ist, vorher schließen (wichtig bei Logout/Login Wechseln)
+      if (realtimeChannel) {
+        supabase.removeChannel(realtimeChannel);
+      }
+
+      realtimeChannel = supabase
+        .channel('tasks-live-changes')
+        .on(
+          'postgres_changes', 
+          { 
+            event: '*', 
+            schema: 'public', 
+            table: 'tasks' 
+          }, 
+          (payload) => {
+            console.log("Live-Update empfangen:", payload);
+            loadTasks(); // Aktualisiert die Task-Liste sofort für alle User
+          }
+        )
+        .subscribe();
+    }
+
     async function initApp() {
       const userAdmin = isAdmin(currentUser);
       document.getElementById("adminTabBtn").style.display = userAdmin ? "inline-block" : "none";
       document.getElementById("filterSection").style.display = userAdmin ? "block" : "none";
       await loadProfiles();
       await loadTasks();
+      
+      // Realtime aktivieren, sobald die App initialisiert ist
+      setupRealtime();
+
       showView("app");
       switchTab("openView", { currentTarget: document.getElementById("defaultTab") });
     }
@@ -182,20 +209,35 @@
         const data = await safeData(supabase.auth.signInWithPassword({ email: e, password: p }), "Login");
         if (data) { currentUser = data.user; await initApp(); }
       };
-      document.getElementById("logoutBtn").onclick = () => { supabase.auth.signOut(); showView("login"); };
+      document.getElementById("logoutBtn").onclick = () => { 
+        if (realtimeChannel) supabase.removeChannel(realtimeChannel); // Live-Verbindung trennen
+        supabase.auth.signOut(); 
+        showView("login"); 
+      };
       
       document.getElementById("createTaskBtn").onclick = async () => {
         const text = document.getElementById("taskText").value;
         const uId = document.getElementById("userSelect").value;
-        const prio = document.getElementById("prioSelect").value;
+        const prio = document.getElementById("prioSelect").value || "Mittel"; // Standard-Priorität absichern
         const due = document.getElementById("dueInput").value;
+        
         if (!text) return alert("Text fehlt!");
+        
+        // Ablaufdatum validieren: Wenn leer, wird explizit "null" übermittelt
+        const formattedDueDate = due && due.trim() !== "" ? due : null;
+
         await safeData(supabase.from("tasks").insert({ 
-          task_text: text, user_id: uId, done: false, 
-          admin_notes: "", user_feedback: "", 
-          priority: prio, due_date: due || null 
+          task_text: text, 
+          user_id: uId, 
+          done: false, 
+          admin_notes: "", 
+          user_feedback: "", 
+          priority: prio, 
+          due_date: formattedDueDate
         }), "Erstellen");
+        
         document.getElementById("taskText").value = "";
+        document.getElementById("dueInput").value = ""; // Datumsfeld nach Erstellung leeren
         loadTasks();
       };
 
@@ -225,7 +267,6 @@
     ul { list-style: none; padding: 0; }
     li { background: #1f2937; margin-bottom: 15px; padding: 15px; border-radius: 12px; border-left: 5px solid #3b82f6; transition: 0.3s; }
     
-    /* Prioritäts-Farben */
     li.priority-hoch { border-left-color: #ef4444; }
     li.priority-mittel { border-left-color: #f59e0b; }
     li.priority-niedrig { border-left-color: #10b981; }
